@@ -23,6 +23,7 @@ class Paciente(db.Model):
 
     religion = db.Column(db.String(50))
     procedencia = db.Column(db.String(50))
+    ocupacion = db.Column(db.String(100))  # Ocupación del paciente
     telefono = db.Column(db.String(15))
     email = db.Column(db.String(120))
     direccion = db.Column(db.Text, nullable=False)
@@ -59,6 +60,7 @@ class Paciente(db.Model):
             "grado_instruccion": self.grado_instruccion,
             "religion": self.religion,
             "procedencia": self.procedencia,
+            "ocupacion": self.ocupacion,
             "telefono": self.telefono,
             "email": self.email,
             "direccion": self.direccion,

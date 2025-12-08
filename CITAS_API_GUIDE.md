@@ -1331,3 +1331,850 @@ El backend usa nombres de roles diferentes al frontend:
 | `asistente` | `asistente` |
 
 > El mapeo se realiza automáticamente en el backend, por lo que el frontend siempre trabaja con los valores simplificados (`admin`, `medico`, `asistente`).
+
+---
+
+## Endpoints de Gestión de Pacientes (Nuevos)
+
+### 9. Obtener Paciente por ID
+
+**`GET /api/pacientes/<id>`**
+
+Obtiene los datos completos de un paciente específico.
+
+#### Response (200):
+```json
+{
+    "id": 1,
+    "dni": "12345678",
+    "nombres": "JUAN CARLOS",
+    "apellido_paterno": "PÉREZ",
+    "apellidoPaterno": "PÉREZ",
+    "apellido_materno": "GARCÍA",
+    "apellidoMaterno": "GARCÍA",
+    "fecha_nacimiento": "1990-05-15",
+    "fechaNacimiento": "1990-05-15",
+    "edad": 34,
+    "sexo": "M",
+    "estado_civil": "S",
+    "grado_instruccion": "universitario_completo",
+    "religion": "Católica",
+    "procedencia": "Lima",
+    "ocupacion": "Ingeniero de Sistemas",
+    "telefono": "999888777",
+    "email": "juan@email.com",
+    "direccion": "Av. Principal 123",
+    "seguro": "SIS",
+    "numero_seguro": "123456789",
+    "fecha_registro": "2025-12-01 10:30:00"
+}
+```
+
+#### Errores:
+| Código | Mensaje |
+|--------|---------|
+| 404 | `Paciente no encontrado` |
+
+---
+
+### 10. Actualizar Paciente
+
+**`PUT /api/pacientes/<id>`**
+
+Actualiza los datos de un paciente existente. Solo se actualizan los campos enviados.
+
+#### Request Body (todos opcionales):
+```json
+{
+    "nombres": "JUAN CARLOS ACTUALIZADO",
+    "apellido_paterno": "PÉREZ",
+    "apellido_materno": "GARCÍA",
+    "fecha_nacimiento": "1990-05-15",
+    "sexo": "M",
+    "estado_civil": "C",
+    "grado_instruccion": "universitario_completo",
+    "religion": "Católica",
+    "procedencia": "Lima",
+    "ocupacion": "Gerente de TI",
+    "telefono": "999888777",
+    "email": "nuevo@email.com",
+    "direccion": "Nueva dirección 456",
+    "seguro": "ESSALUD",
+    "numero_seguro": "987654321"
+}
+```
+
+#### Response (200):
+```json
+{
+    "message": "Paciente actualizado correctamente",
+    "data": {
+        "id": 1,
+        "dni": "12345678",
+        "nombres": "JUAN CARLOS ACTUALIZADO",
+        // ... todos los campos actualizados
+    }
+}
+```
+
+#### Errores:
+| Código | Mensaje |
+|--------|---------|
+| 404 | `Paciente no encontrado` |
+
+---
+
+### 11. Historial de Citas de un Paciente
+
+**`GET /api/pacientes/<id>/historial`**
+
+Obtiene el historial completo de citas de un paciente con paginación.
+
+#### Query Parameters:
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `page` | int | Página actual (default: 1) |
+| `per_page` | int | Items por página (default: 10) |
+| `estado` | string | Filtrar por estado (pendiente, confirmada, atendida, cancelada, referido) |
+
+#### Response (200):
+```json
+{
+    "paciente": {
+        "id": 1,
+        "dni": "12345678",
+        "nombre_completo": "PÉREZ GARCÍA, JUAN CARLOS"
+    },
+    "total": 15,
+    "pages": 2,
+    "current_page": 1,
+    "per_page": 10,
+    "data": [
+        {
+            "id": 45,
+            "paciente_id": 1,
+            "horario_id": 55,
+            "doctor_id": 3,
+            "area_id": 1,
+            "area": "Medicina General",
+            "area_nombre": "Medicina General",
+            "fecha": "2025-12-08",
+            "sintomas": "Control mensual",
+            "estado": "atendida",
+            "doctor_nombre": "Dr. Juan Pérez",
+            "horario_turno": "M",
+            "horario_turno_nombre": "Mañana",
+            "fecha_registro": "2025-12-08 10:30:00",
+            "dni_acompanante": null,
+            "nombre_acompanante": null,
+            "telefono_acompanante": null,
+            "horario": {
+                "id": 55,
+                "turno": "M",
+                "turno_nombre": "Mañana",
+                "hora_inicio": "07:30:00",
+                "hora_fin": "13:30:00"
+            }
+        },
+        {
+            "id": 32,
+            "fecha": "2025-11-15",
+            "sintomas": "Dolor de cabeza intenso",
+            "estado": "atendida",
+            "area_nombre": "Neurología",
+            "doctor_nombre": "Dra. María López",
+            // ... más campos
+        }
+    ]
+}
+```
+
+#### Errores:
+| Código | Mensaje |
+|--------|---------|
+| 404 | `Paciente no encontrado` |
+
+---
+
+## Guía de Implementación Frontend - Directorio de Pacientes
+
+A continuación se detalla cómo implementar las funcionalidades de **historial de citas** y **edición de paciente** en el componente `DirectorioPacientes.vue`.
+
+### 1. Actualizar `pacienteService.ts`
+
+Agregar los nuevos métodos al servicio:
+
+```typescript
+import api from './api'
+
+export interface Paciente {
+    id: number
+    dni: string
+    nombres: string
+    apellido_paterno: string
+    apellidoPaterno: string
+    apellido_materno: string
+    apellidoMaterno: string
+    fecha_nacimiento: string
+    fechaNacimiento: string
+    edad: number
+    sexo: string
+    estado_civil: string
+    grado_instruccion: string | null
+    religion: string | null
+    procedencia: string | null
+    ocupacion: string | null
+    telefono: string | null
+    email: string | null
+    direccion: string
+    seguro: string | null
+    numero_seguro: string | null
+    fecha_registro: string
+}
+
+export interface HistorialCita {
+    id: number
+    paciente_id: number
+    horario_id: number | null
+    doctor_id: number | null
+    area_id: number | null
+    area: string | null
+    area_nombre: string | null
+    fecha: string | null
+    sintomas: string
+    estado: string
+    doctor_nombre: string | null
+    horario_turno: 'M' | 'T' | null
+    horario_turno_nombre: string | null
+    fecha_registro: string
+    dni_acompanante: string | null
+    nombre_acompanante: string | null
+    telefono_acompanante: string | null
+    horario?: {
+        id: number
+        turno: 'M' | 'T'
+        turno_nombre: string
+        hora_inicio: string
+        hora_fin: string
+    }
+}
+
+export interface HistorialResponse {
+    paciente: {
+        id: number
+        dni: string
+        nombre_completo: string
+    }
+    total: number
+    pages: number
+    current_page: number
+    per_page: number
+    data: HistorialCita[]
+}
+
+export interface UpdatePacientePayload {
+    nombres?: string
+    apellido_paterno?: string
+    apellido_materno?: string
+    fecha_nacimiento?: string
+    sexo?: string
+    estado_civil?: string
+    grado_instruccion?: string
+    religion?: string
+    procedencia?: string
+    ocupacion?: string
+    telefono?: string
+    email?: string
+    direccion?: string
+    seguro?: string
+    numero_seguro?: string
+}
+
+const pacienteService = {
+    // Listar pacientes con paginación y búsqueda
+    getPacientes(params?: {
+        page?: number
+        per_page?: number
+        search?: string
+    }) {
+        return api.get<{
+            total: number
+            pages: number
+            current_page: number
+            per_page: number
+            data: Paciente[]
+        }>('/pacientes/', { params })
+    },
+
+    // Obtener paciente por ID
+    getPaciente(id: number) {
+        return api.get<Paciente>(`/pacientes/${id}`)
+    },
+
+    // Buscar paciente por DNI
+    buscarPorDNI(dni: string) {
+        return api.get<Paciente>(`/pacientes/buscar/${dni}`)
+    },
+
+    // Registrar nuevo paciente
+    crearPaciente(payload: any) {
+        return api.post<{
+            message: string
+            id: number
+            is_new: boolean
+            data: Paciente
+        }>('/pacientes/', payload)
+    },
+
+    // Actualizar paciente existente
+    updatePaciente(id: number, payload: UpdatePacientePayload) {
+        return api.put<{
+            message: string
+            data: Paciente
+        }>(`/pacientes/${id}`, payload)
+    },
+
+    // Obtener historial de citas de un paciente
+    getHistorialCitas(pacienteId: number, params?: {
+        page?: number
+        per_page?: number
+        estado?: string
+    }) {
+        return api.get<HistorialResponse>(`/pacientes/${pacienteId}/historial`, { params })
+    }
+}
+
+export default pacienteService
+```
+
+---
+
+### 2. Actualizar `DirectorioPacientes.vue`
+
+Agregar las nuevas funcionalidades y modales:
+
+```vue
+<template>
+    <div class="bg-white rounded-lg shadow-lg overflow-hidden">
+        <!-- Buscador y Filtros (sin cambios) -->
+        <div class="p-6 border-b border-gray-200 flex flex-col md:flex-row justify-between items-center gap-4">
+            <h2 class="text-lg font-semibold text-gray-800">Directorio de Pacientes</h2>
+            <div class="relative w-full md:w-96">
+                <input type="text" v-model="busquedaPaciente" placeholder="Buscar por DNI o Nombre..."
+                    class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent">
+                <MagnifyingGlassIcon class="w-5 h-5 absolute left-3 top-3 text-gray-400" />
+            </div>
+        </div>
+
+        <!-- Tabla (con handlers actualizados) -->
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <!-- ... thead sin cambios ... -->
+                <tbody class="bg-white divide-y divide-gray-200">
+                    <!-- ... estados de carga y vacío sin cambios ... -->
+                    <template v-else>
+                        <tr v-for="paciente in pacientes" :key="paciente.id" class="hover:bg-gray-50">
+                            <!-- ... celdas sin cambios hasta acciones ... -->
+                            <td class="px-6 py-4 text-sm font-medium">
+                                <button 
+                                    @click="verHistorial(paciente)" 
+                                    class="text-teal-600 hover:text-teal-900 mr-3" 
+                                    title="Ver Historial">
+                                    <ClockIcon class="w-5 h-5" />
+                                </button>
+                                <button 
+                                    @click="editarPaciente(paciente)" 
+                                    class="text-blue-600 hover:text-blue-900" 
+                                    title="Editar">
+                                    <PencilIcon class="w-5 h-5" />
+                                </button>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Paginación (sin cambios) -->
+        <!-- ... -->
+    </div>
+
+    <!-- MODAL: Historial de Citas -->
+    <Teleport to="body">
+        <div v-if="showHistorialModal" 
+            class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
+                <!-- Header -->
+                <div class="bg-teal-600 text-white p-4 flex justify-between items-center">
+                    <div>
+                        <h3 class="text-lg font-bold">Historial de Citas</h3>
+                        <p class="text-teal-100 text-sm">{{ historialData?.paciente?.nombre_completo }}</p>
+                    </div>
+                    <button @click="closeHistorialModal" class="text-white hover:text-teal-200">
+                        <XMarkIcon class="w-6 h-6" />
+                    </button>
+                </div>
+
+                <!-- Filtros del historial -->
+                <div class="p-4 border-b bg-gray-50 flex gap-4">
+                    <select v-model="historialFiltroEstado" @change="fetchHistorial"
+                        class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                        <option value="">Todos los estados</option>
+                        <option value="pendiente">Pendiente</option>
+                        <option value="confirmada">Confirmada</option>
+                        <option value="atendida">Atendida</option>
+                        <option value="cancelada">Cancelada</option>
+                        <option value="referido">Referido</option>
+                    </select>
+                </div>
+
+                <!-- Lista de citas -->
+                <div class="overflow-y-auto max-h-[60vh] p-4">
+                    <div v-if="loadingHistorial" class="text-center py-8">
+                        <ArrowPathIcon class="w-8 h-8 animate-spin text-teal-500 mx-auto mb-2" />
+                        <span class="text-gray-500">Cargando historial...</span>
+                    </div>
+
+                    <div v-else-if="historialCitas.length === 0" class="text-center py-8 text-gray-500">
+                        <ClockIcon class="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                        <p>No hay citas registradas</p>
+                    </div>
+
+                    <div v-else class="space-y-4">
+                        <div v-for="cita in historialCitas" :key="cita.id" 
+                            class="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <div class="flex items-center gap-2 mb-1">
+                                        <span class="font-semibold text-gray-800">{{ cita.fecha || 'Sin fecha' }}</span>
+                                        <span :class="getEstadoClass(cita.estado)" 
+                                            class="px-2 py-0.5 text-xs font-medium rounded-full">
+                                            {{ cita.estado }}
+                                        </span>
+                                    </div>
+                                    <p class="text-sm text-gray-600">{{ cita.area_nombre }}</p>
+                                    <p class="text-sm text-gray-500">Dr(a). {{ cita.doctor_nombre || 'No asignado' }}</p>
+                                </div>
+                                <div class="text-right text-sm text-gray-500">
+                                    <p>{{ cita.horario_turno_nombre || 'N/A' }}</p>
+                                    <p v-if="cita.horario">
+                                        {{ cita.horario.hora_inicio }} - {{ cita.horario.hora_fin }}
+                                    </p>
+                                </div>
+                            </div>
+                            <div v-if="cita.sintomas" class="mt-2 pt-2 border-t">
+                                <p class="text-sm text-gray-600"><strong>Síntomas:</strong> {{ cita.sintomas }}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Paginación del historial -->
+                <div v-if="historialData && historialData.pages > 1" 
+                    class="p-4 border-t bg-gray-50 flex justify-between items-center">
+                    <span class="text-sm text-gray-600">
+                        Página {{ historialData.current_page }} de {{ historialData.pages }}
+                    </span>
+                    <div class="flex gap-2">
+                        <button @click="historialPage--; fetchHistorial()" 
+                            :disabled="historialPage === 1"
+                            class="px-3 py-1 border rounded text-sm disabled:opacity-50">
+                            Anterior
+                        </button>
+                        <button @click="historialPage++; fetchHistorial()" 
+                            :disabled="historialPage >= historialData.pages"
+                            class="px-3 py-1 border rounded text-sm disabled:opacity-50">
+                            Siguiente
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </Teleport>
+
+    <!-- MODAL: Editar Paciente -->
+    <Teleport to="body">
+        <div v-if="showEditModal" 
+            class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden">
+                <!-- Header -->
+                <div class="bg-blue-600 text-white p-4 flex justify-between items-center">
+                    <h3 class="text-lg font-bold">Editar Paciente</h3>
+                    <button @click="closeEditModal" class="text-white hover:text-blue-200">
+                        <XMarkIcon class="w-6 h-6" />
+                    </button>
+                </div>
+
+                <!-- Formulario -->
+                <form @submit.prevent="guardarPaciente" class="overflow-y-auto max-h-[70vh] p-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <!-- DNI (solo lectura) -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">DNI</label>
+                            <input type="text" :value="editForm.dni" disabled
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed">
+                        </div>
+
+                        <!-- Nombres -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Nombres *</label>
+                            <input type="text" v-model="editForm.nombres" required
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        </div>
+
+                        <!-- Apellido Paterno -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Apellido Paterno *</label>
+                            <input type="text" v-model="editForm.apellido_paterno" required
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        </div>
+
+                        <!-- Apellido Materno -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Apellido Materno *</label>
+                            <input type="text" v-model="editForm.apellido_materno" required
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        </div>
+
+                        <!-- Fecha de Nacimiento -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Fecha de Nacimiento</label>
+                            <input type="date" v-model="editForm.fecha_nacimiento"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        </div>
+
+                        <!-- Sexo -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Sexo</label>
+                            <select v-model="editForm.sexo" 
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                <option value="M">Masculino</option>
+                                <option value="F">Femenino</option>
+                            </select>
+                        </div>
+
+                        <!-- Estado Civil -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Estado Civil</label>
+                            <select v-model="editForm.estado_civil" 
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                <option value="S">Soltero(a)</option>
+                                <option value="C">Casado(a)</option>
+                                <option value="V">Viudo(a)</option>
+                                <option value="D">Divorciado(a)</option>
+                            </select>
+                        </div>
+
+                        <!-- Ocupación -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Ocupación</label>
+                            <input type="text" v-model="editForm.ocupacion"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        </div>
+
+                        <!-- Teléfono -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Teléfono</label>
+                            <input type="tel" v-model="editForm.telefono"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        </div>
+
+                        <!-- Email -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                            <input type="email" v-model="editForm.email"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        </div>
+
+                        <!-- Dirección (ancho completo) -->
+                        <div class="md:col-span-2">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Dirección</label>
+                            <input type="text" v-model="editForm.direccion"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        </div>
+
+                        <!-- Seguro -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Seguro</label>
+                            <select v-model="editForm.seguro" 
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                <option value="">Particular</option>
+                                <option value="SIS">SIS</option>
+                                <option value="ESSALUD">ESSALUD</option>
+                            </select>
+                        </div>
+
+                        <!-- Número de Seguro -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Número de Seguro</label>
+                            <input type="text" v-model="editForm.numero_seguro"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        </div>
+                    </div>
+
+                    <!-- Botones -->
+                    <div class="flex justify-end gap-3 mt-6 pt-4 border-t">
+                        <button type="button" @click="closeEditModal"
+                            class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
+                            Cancelar
+                        </button>
+                        <button type="submit" :disabled="savingEdit"
+                            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                            <span v-if="savingEdit">Guardando...</span>
+                            <span v-else>Guardar Cambios</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </Teleport>
+</template>
+
+<script setup lang="ts">
+import { ref, watch, onMounted } from "vue";
+import pacienteService, { 
+    type Paciente, 
+    type HistorialCita, 
+    type HistorialResponse 
+} from "../../services/pacienteService";
+import {
+    MagnifyingGlassIcon,
+    ArrowPathIcon,
+    ClockIcon,
+    PencilIcon,
+    ChevronLeftIcon,
+    ChevronRightIcon,
+    XMarkIcon
+} from '@heroicons/vue/24/outline'
+
+// Estado principal
+const busquedaPaciente = ref('');
+const currentPage = ref(1);
+const itemsPerPage = ref(10);
+const totalPages = ref(0);
+const totalItems = ref(0);
+const pacientes = ref<Paciente[]>([]);
+const isLoading = ref(false);
+
+// Estado del modal de historial
+const showHistorialModal = ref(false);
+const loadingHistorial = ref(false);
+const historialCitas = ref<HistorialCita[]>([]);
+const historialData = ref<HistorialResponse | null>(null);
+const historialPage = ref(1);
+const historialFiltroEstado = ref('');
+const pacienteSeleccionado = ref<Paciente | null>(null);
+
+// Estado del modal de edición
+const showEditModal = ref(false);
+const savingEdit = ref(false);
+const editForm = ref({
+    id: 0,
+    dni: '',
+    nombres: '',
+    apellido_paterno: '',
+    apellido_materno: '',
+    fecha_nacimiento: '',
+    sexo: '',
+    estado_civil: '',
+    ocupacion: '',
+    telefono: '',
+    email: '',
+    direccion: '',
+    seguro: '',
+    numero_seguro: ''
+});
+
+// Función para cargar pacientes
+const fetchPacientes = async () => {
+    isLoading.value = true;
+    try {
+        const params = {
+            page: currentPage.value,
+            per_page: itemsPerPage.value,
+            search: busquedaPaciente.value
+        };
+
+        const { data } = await pacienteService.getPacientes(params);
+
+        pacientes.value = data.data;
+        totalPages.value = data.pages;
+        totalItems.value = data.total;
+    } catch (error) {
+        console.error("Error al cargar pacientes:", error);
+    } finally {
+        isLoading.value = false;
+    }
+};
+
+// === HISTORIAL DE CITAS ===
+const verHistorial = async (paciente: Paciente) => {
+    pacienteSeleccionado.value = paciente;
+    historialPage.value = 1;
+    historialFiltroEstado.value = '';
+    showHistorialModal.value = true;
+    await fetchHistorial();
+};
+
+const fetchHistorial = async () => {
+    if (!pacienteSeleccionado.value) return;
+    
+    loadingHistorial.value = true;
+    try {
+        const params = {
+            page: historialPage.value,
+            per_page: 10,
+            estado: historialFiltroEstado.value || undefined
+        };
+
+        const { data } = await pacienteService.getHistorialCitas(
+            pacienteSeleccionado.value.id, 
+            params
+        );
+
+        historialData.value = data;
+        historialCitas.value = data.data;
+    } catch (error) {
+        console.error("Error al cargar historial:", error);
+    } finally {
+        loadingHistorial.value = false;
+    }
+};
+
+const closeHistorialModal = () => {
+    showHistorialModal.value = false;
+    pacienteSeleccionado.value = null;
+    historialCitas.value = [];
+    historialData.value = null;
+};
+
+const getEstadoClass = (estado: string) => {
+    const clases: Record<string, string> = {
+        'pendiente': 'bg-yellow-100 text-yellow-800',
+        'confirmada': 'bg-blue-100 text-blue-800',
+        'atendida': 'bg-green-100 text-green-800',
+        'cancelada': 'bg-red-100 text-red-800',
+        'referido': 'bg-purple-100 text-purple-800'
+    };
+    return clases[estado] || 'bg-gray-100 text-gray-800';
+};
+
+// === EDITAR PACIENTE ===
+const editarPaciente = (paciente: Paciente) => {
+    editForm.value = {
+        id: paciente.id,
+        dni: paciente.dni,
+        nombres: paciente.nombres,
+        apellido_paterno: paciente.apellido_paterno,
+        apellido_materno: paciente.apellido_materno,
+        fecha_nacimiento: paciente.fecha_nacimiento,
+        sexo: paciente.sexo,
+        estado_civil: paciente.estado_civil,
+        ocupacion: paciente.ocupacion || '',
+        telefono: paciente.telefono || '',
+        email: paciente.email || '',
+        direccion: paciente.direccion,
+        seguro: paciente.seguro || '',
+        numero_seguro: paciente.numero_seguro || ''
+    };
+    showEditModal.value = true;
+};
+
+const guardarPaciente = async () => {
+    savingEdit.value = true;
+    try {
+        const payload = {
+            nombres: editForm.value.nombres,
+            apellido_paterno: editForm.value.apellido_paterno,
+            apellido_materno: editForm.value.apellido_materno,
+            fecha_nacimiento: editForm.value.fecha_nacimiento,
+            sexo: editForm.value.sexo,
+            estado_civil: editForm.value.estado_civil,
+            ocupacion: editForm.value.ocupacion,
+            telefono: editForm.value.telefono,
+            email: editForm.value.email,
+            direccion: editForm.value.direccion,
+            seguro: editForm.value.seguro,
+            numero_seguro: editForm.value.numero_seguro
+        };
+
+        await pacienteService.updatePaciente(editForm.value.id, payload);
+        
+        // Mostrar notificación de éxito
+        alert('Paciente actualizado correctamente');
+        
+        // Cerrar modal y recargar lista
+        closeEditModal();
+        await fetchPacientes();
+    } catch (error: any) {
+        console.error("Error al guardar:", error);
+        alert(error.response?.data?.error || 'Error al actualizar paciente');
+    } finally {
+        savingEdit.value = false;
+    }
+};
+
+const closeEditModal = () => {
+    showEditModal.value = false;
+};
+
+// Observadores
+watch(busquedaPaciente, () => {
+    currentPage.value = 1;
+    fetchPacientes();
+});
+
+watch(currentPage, () => {
+    fetchPacientes();
+});
+
+// Cargar al inicio
+onMounted(() => {
+    fetchPacientes();
+});
+
+// Funciones de paginación
+const nextPage = () => {
+    if (currentPage.value < totalPages.value) currentPage.value++;
+};
+
+const prevPage = () => {
+    if (currentPage.value > 1) currentPage.value--;
+};
+</script>
+```
+
+---
+
+## Resumen de Endpoints Implementados
+
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| `GET` | `/api/pacientes/<id>` | Obtener paciente por ID |
+| `PUT` | `/api/pacientes/<id>` | Actualizar datos del paciente |
+| `GET` | `/api/pacientes/<id>/historial` | Historial de citas del paciente |
+
+---
+
+## Pruebas con cURL
+
+### Obtener paciente por ID:
+```bash
+curl http://localhost:5000/api/pacientes/1
+```
+
+### Actualizar paciente:
+```bash
+curl -X PUT http://localhost:5000/api/pacientes/1 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "telefono": "999111222",
+    "ocupacion": "Profesor",
+    "email": "nuevo@email.com"
+  }'
+```
+
+### Obtener historial de citas:
+```bash
+curl "http://localhost:5000/api/pacientes/1/historial?page=1&per_page=10&estado=atendida"
+```

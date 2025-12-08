@@ -10,8 +10,8 @@ class Usuario(db.Model):
     password = db.Column(db.Text, nullable=False)
     nombres_completos = db.Column(db.String(150), nullable=True)
     
-    rol_id = db.Column(db.String(20), nullable=False)  
-    # valores: administrador / asistente / medico
+    rol_id = db.Column(db.Integer, nullable=False)  
+    # valores: 1 = administrador, 2 = medico, 3 = asistente
 
     activo = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

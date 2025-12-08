@@ -50,7 +50,7 @@ def perfil():
 # EJEMPLO RUTA SOLO ADMIN
 @usuario_bp.get("/admin-only")
 @token_required
-@roles_required("administrador")
+@roles_required(1)  # 1 = administrador
 def admin_only():
     return {"message": "Bienvenido administrador"}, 200
 
@@ -74,7 +74,7 @@ def get_medicos():
 # GET - Listar todos los usuarios
 @usuario_bp.get("/users")
 @token_required
-@roles_required("administrador", 1, "1")  # Soporta string y número
+@roles_required(1)  # 1 = administrador
 def listar_usuarios():
     """Lista todos los usuarios del sistema con filtros opcionales."""
     return UsuarioController.listar_usuarios()
@@ -83,7 +83,7 @@ def listar_usuarios():
 # POST - Crear nuevo usuario
 @usuario_bp.post("/users")
 @token_required
-@roles_required("administrador", 1, "1")  # Soporta string y número
+@roles_required(1)  # 1 = administrador
 def crear_usuario_nuevo():
     """Crea un nuevo usuario en el sistema."""
     data = request.get_json()
@@ -93,7 +93,7 @@ def crear_usuario_nuevo():
 # GET - Obtener usuario por ID
 @usuario_bp.get("/users/<int:usuario_id>")
 @token_required
-@roles_required("administrador", 1, "1")  # Soporta string y número
+@roles_required(1)  # 1 = administrador
 def obtener_usuario(usuario_id):
     """Obtiene un usuario específico por su ID."""
     return UsuarioController.obtener_usuario(usuario_id)
@@ -102,7 +102,7 @@ def obtener_usuario(usuario_id):
 # PUT - Actualizar usuario
 @usuario_bp.put("/users/<int:usuario_id>")
 @token_required
-@roles_required("administrador", 1, "1")  # Soporta string y número
+@roles_required(1)  # 1 = administrador
 def actualizar_usuario(usuario_id):
     """Actualiza un usuario existente."""
     data = request.get_json()
@@ -112,7 +112,7 @@ def actualizar_usuario(usuario_id):
 # DELETE - Eliminar usuario
 @usuario_bp.delete("/users/<int:usuario_id>")
 @token_required
-@roles_required("administrador", 1, "1")  # Soporta string y número
+@roles_required(1)  # 1 = administrador
 def eliminar_usuario(usuario_id):
     """Elimina un usuario del sistema."""
     return UsuarioController.eliminar_usuario(usuario_id)

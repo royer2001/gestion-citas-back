@@ -211,14 +211,15 @@ class UsuarioController:
             # Filtro por rol
             role_filter = request.args.get('role')
             if role_filter:
-                # Mapear roles del frontend a los del backend
+                # Mapear roles del frontend a los del backend (enteros)
                 role_mapping = {
-                    'admin': 'administrador',
-                    'medico': 'medico',
-                    'asistente': 'asistente'
+                    'admin': 1,
+                    'medico': 2,
+                    'asistente': 3
                 }
-                backend_role = role_mapping.get(role_filter, role_filter)
-                query = query.filter(Usuario.rol_id == backend_role)
+                backend_role = role_mapping.get(role_filter)
+                if backend_role:
+                    query = query.filter(Usuario.rol_id == backend_role)
 
             # Filtro por búsqueda (nombre o username)
             search = request.args.get('search')
@@ -234,31 +235,18 @@ class UsuarioController:
 
             usuarios = query.order_by(Usuario.id.desc()).all()
 
-            # Mapear roles del backend al frontend
+            # Mapear roles del backend (enteros) al frontend
             role_mapping_reverse = {
-                'administrador': 'admin',
-                'medico': 'medico',
-                'asistente': 'asistente',
                 1: 'admin',
                 2: 'medico',
-                3: 'asistente',
-                '1': 'admin',
-                '2': 'medico',
-                '3': 'asistente'
+                3: 'asistente'
             }
 
             # Nombres legibles de los roles
             role_names = {
-                'admin': 'Administrador',
-                'medico': 'Médico',
-                'asistente': 'Asistente Técnico',
-                'administrador': 'Administrador',
                 1: 'Administrador',
                 2: 'Médico',
-                3: 'Asistente Técnico',
-                '1': 'Administrador',
-                '2': 'Médico',
-                '3': 'Asistente Técnico'
+                3: 'Asistente Técnico'
             }
 
             lista = []
@@ -291,10 +279,11 @@ class UsuarioController:
             if not usuario:
                 return jsonify({"error": "Usuario no encontrado"}), 404
 
+            # Mapear rol_id (entero) a string del frontend
             role_mapping_reverse = {
-                'administrador': 'admin',
-                'medico': 'medico',
-                'asistente': 'asistente'
+                1: 'admin',
+                2: 'medico',
+                3: 'asistente'
             }
 
             return jsonify({
@@ -327,11 +316,11 @@ class UsuarioController:
             if not usuario:
                 return jsonify({"error": "Usuario no encontrado"}), 404
 
-            # Mapear roles del frontend al backend
+            # Mapear roles del frontend al backend (enteros)
             role_mapping = {
-                'admin': 'administrador',
-                'medico': 'medico',
-                'asistente': 'asistente'
+                'admin': 1,
+                'medico': 2,
+                'asistente': 3
             }
 
             # Actualizar campos
@@ -352,8 +341,9 @@ class UsuarioController:
                 usuario.password = generate_password_hash(data['password'])
 
             if 'role' in data:
-                backend_role = role_mapping.get(data['role'], data['role'])
-                usuario.rol_id = backend_role
+                backend_role = role_mapping.get(data['role'])
+                if backend_role:
+                    usuario.rol_id = backend_role
 
             if 'activo' in data:
                 usuario.activo = data['activo']
@@ -361,9 +351,9 @@ class UsuarioController:
             db.session.commit()
 
             role_mapping_reverse = {
-                'administrador': 'admin',
-                'medico': 'medico',
-                'asistente': 'asistente'
+                1: 'admin',
+                2: 'medico',
+                3: 'asistente'
             }
 
             return jsonify({
@@ -395,8 +385,8 @@ class UsuarioController:
                 return jsonify({"error": "Usuario no encontrado"}), 404
 
             # Verificar que no sea el único administrador
-            if usuario.rol_id == 'administrador':
-                admin_count = Usuario.query.filter_by(rol_id='administrador').count()
+            if usuario.rol_id == 1:  # 1 = administrador
+                admin_count = Usuario.query.filter_by(rol_id=1).count()
                 if admin_count <= 1:
                     return jsonify({
                         "error": "No se puede eliminar el único administrador del sistema"
@@ -430,11 +420,11 @@ class UsuarioController:
                 if field not in data or not data[field]:
                     return jsonify({"error": f"El campo '{field}' es obligatorio"}), 400
 
-            # Mapear roles del frontend al backend
+            # Mapear roles del frontend al backend (enteros)
             role_mapping = {
-                'admin': 'administrador',
-                'medico': 'medico',
-                'asistente': 'asistente'
+                'admin': 1,
+                'medico': 2,
+                'asistente': 3
             }
 
             # Verificar username único
@@ -461,9 +451,9 @@ class UsuarioController:
             db.session.commit()
 
             role_mapping_reverse = {
-                'administrador': 'admin',
-                'medico': 'medico',
-                'asistente': 'asistente'
+                1: 'admin',
+                2: 'medico',
+                3: 'asistente'
             }
 
             return jsonify({
