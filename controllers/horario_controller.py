@@ -228,6 +228,8 @@ class HorarioController:
     def get_horarios():
         """
         Obtiene horarios con filtros opcionales.
+        Incluye cupos_disponibles calculado en base a citas activas.
+        OPTIMIZADO: Una sola consulta con LEFT JOIN para calcular cupos.
         
         Query params:
         - medico_id: Filtrar por médico
@@ -237,27 +239,47 @@ class HorarioController:
         - turno: Filtrar por turno ('M' o 'T')
         """
         try:
+            from models.cita_model import Cita
+            from sqlalchemy import func, case
+            
             medico_id = request.args.get('medico_id')
             area_id = request.args.get('area_id')
             mes = request.args.get('mes')  # Formato YYYY-MM
             fecha = request.args.get('fecha')  # Formato YYYY-MM-DD
             turno = request.args.get('turno')  # 'M' o 'T'
             
-            query = HorarioMedico.query
+            # Subconsulta para contar citas activas por horario_id
+            # Cuenta solo citas no canceladas
+            citas_count_subq = db.session.query(
+                Cita.horario_id,
+                func.count(Cita.id).label('citas_activas')
+            ).filter(
+                Cita.estado != 'cancelada'
+            ).group_by(Cita.horario_id).subquery()
             
+            # Query principal con LEFT JOIN a la subconsulta
+            query = db.session.query(
+                HorarioMedico,
+                func.coalesce(citas_count_subq.c.citas_activas, 0).label('citas_activas')
+            ).outerjoin(
+                citas_count_subq,
+                HorarioMedico.id == citas_count_subq.c.horario_id
+            )
+            
+            # Aplicar filtros
             if medico_id:
-                query = query.filter_by(medico_id=medico_id)
+                query = query.filter(HorarioMedico.medico_id == medico_id)
             
             if area_id:
-                query = query.filter_by(area_id=area_id)
+                query = query.filter(HorarioMedico.area_id == area_id)
             
             if turno:
-                query = query.filter_by(turno=turno)
+                query = query.filter(HorarioMedico.turno == turno)
             
             if fecha:
                 try:
                     fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").date()
-                    query = query.filter_by(fecha=fecha_obj)
+                    query = query.filter(HorarioMedico.fecha == fecha_obj)
                 except ValueError:
                     return jsonify({"error": "Formato de fecha inválido. Use YYYY-MM-DD"}), 400
             elif mes:
@@ -266,15 +288,27 @@ class HorarioController:
                     fecha_inicio = date(year, month, 1)
                     _, dias_en_mes = monthrange(year, month)
                     fecha_fin = date(year, month, dias_en_mes)
-                    query = query.filter(HorarioMedico.fecha >= fecha_inicio, HorarioMedico.fecha <= fecha_fin)
+                    query = query.filter(
+                        HorarioMedico.fecha >= fecha_inicio,
+                        HorarioMedico.fecha <= fecha_fin
+                    )
                 except ValueError:
                     return jsonify({"error": "Formato de mes inválido. Use YYYY-MM"}), 400
             
             # Ordenar por fecha y turno
             query = query.order_by(HorarioMedico.fecha, HorarioMedico.turno)
             
-            horarios = query.all()
-            return jsonify([h.to_dict() for h in horarios]), 200
+            # Ejecutar consulta
+            resultados = query.all()
+            
+            # Construir respuesta
+            resultado = []
+            for horario, citas_activas in resultados:
+                horario_dict = horario.to_dict()
+                horario_dict['cupos_disponibles'] = horario.cupos - citas_activas
+                resultado.append(horario_dict)
+            
+            return jsonify(resultado), 200
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 

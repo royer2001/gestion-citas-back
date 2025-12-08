@@ -3,6 +3,10 @@ from controllers.cita_controller import CitaController
 
 cita_bp = Blueprint("cita_bp", __name__)
 
+@cita_bp.post("/")
+def crear_cita():
+    return CitaController.crear()
+
 @cita_bp.get("/")
 def listar_citas():
     return CitaController.listar()

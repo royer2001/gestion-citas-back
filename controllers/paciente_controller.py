@@ -69,12 +69,19 @@ class PacienteController:
 
     @staticmethod
     def registrar(data):
+        """
+        Registrar o actualizar un paciente.
+        
+        Si el paciente ya existe (por DNI), se actualizan sus datos.
+        Si no existe, se crea uno nuevo.
+        
+        La creación de citas se realiza por separado mediante POST /api/citas
+        """
         try:
             # Validación básica de campos requeridos para Paciente
             required = [
                 "dni", "nombres", "apellido_paterno", "apellido_materno",
-                "fecha_nacimiento", "sexo", "estado_civil",
-                "direccion", "sintomas"
+                "fecha_nacimiento", "sexo", "estado_civil", "direccion"
             ]
 
             for field in required:
@@ -83,26 +90,7 @@ class PacienteController:
 
             # Verificar si el paciente ya existe
             paciente = Paciente.query.filter_by(dni=data["dni"]).first()
-
-            # Definir campos conocidos
-            known_fields = {
-                "dni", "nombres", "apellido_paterno", "apellido_materno",
-                "fecha_nacimiento", "sexo", "estado_civil", "grado_instruccion",
-                "religion", "procedencia", "telefono", "email", "direccion",
-                "dni_acompanante", "nombre_acompanante", "telefono_acompanante",
-                "sintomas", "seguro"
-            }
-
-            # Campos específicos de la cita que no queremos en datos_adicionales del paciente
-            cita_fields = {"doctor_asignado_id", "area_atencion", "doctor_asignado_nombre"}
-            
-            # Capturar datos adicionales
-            datos_adicionales = {k: v for k, v in data.items() if k not in known_fields and k not in cita_fields}
-
-            # Mapeo de campos del frontend a campos del modelo
-            dni_acompanante = data.get("dni_acompanante") or data.get("dni_contacto_emergencia")
-            nombre_acompanante = data.get("nombre_acompanante") or data.get("contacto_emergencia")
-            telefono_acompanante = data.get("telefono_acompanante") or data.get("telefono_contacto_emergencia")
+            is_new = paciente is None
 
             if paciente:
                 # Actualizar datos del paciente existente
@@ -118,12 +106,8 @@ class PacienteController:
                 paciente.telefono = data.get("telefono")
                 paciente.email = data.get("email")
                 paciente.direccion = data["direccion"]
-                # paciente.dni_acompanante = dni_acompanante # Removed
-                # paciente.nombre_acompanante = nombre_acompanante # Removed
-                # paciente.telefono_acompanante = telefono_acompanante # Removed
-                # paciente.sintomas = data["sintomas"] # Removed from Paciente
                 paciente.seguro = data.get("seguro")
-                # paciente.datos_adicionales = datos_adicionales if datos_adicionales else None # Removed
+                paciente.numero_seguro = data.get("numero_seguro")
             else:
                 # Crear nuevo paciente
                 paciente = Paciente(
@@ -140,86 +124,21 @@ class PacienteController:
                     telefono=data.get("telefono"),
                     email=data.get("email"),
                     direccion=data["direccion"],
-                    # dni_acompanante=dni_acompanante, # Removed
-                    # nombre_acompanante=nombre_acompanante, # Removed
-                    # telefono_acompanante=telefono_acompanante, # Removed
-                    # sintomas=data["sintomas"], # Removed from Paciente
                     seguro=data.get("seguro"),
-                    # datos_adicionales=datos_adicionales if datos_adicionales else None # Removed
+                    numero_seguro=data.get("numero_seguro"),
                 )
                 db.session.add(paciente)
             
-            # Guardar cambios del paciente (insert o update)
-            db.session.flush() # Para obtener el ID del paciente si es nuevo
-
-            # Crear la Cita
-            doctor_id = data.get("doctor_asignado_id")
-            if doctor_id:
-                # Validar horario y cupos
-                from models.horario_medico_model import HorarioMedico
-                
-                # Asumimos que la cita es para HOY (Local Time)
-                now_local = datetime.now()
-                dia_semana = now_local.weekday() # 0=Monday
-                
-                horario = HorarioMedico.query.filter_by(
-                    medico_id=doctor_id,
-                    dia_semana=dia_semana
-                ).first()
-
-                if not horario:
-                    return jsonify({"error": "El médico no tiene turno programado para hoy"}), 400
-                
-                # Validar hora (opcional, si se quiere restringir registro fuera de horario)
-                current_time = now_local.time()
-                if current_time < horario.hora_inicio or current_time > horario.hora_fin:
-                     return jsonify({"error": f"El médico atiende de {horario.hora_inicio} a {horario.hora_fin}"}), 400
-
-                # Validar cupos
-                # Calcular rango del día en UTC para comparar con fecha_registro (que está en UTC)
-                # Estimamos offset: Local - UTC
-                utcnow = datetime.utcnow()
-                offset = now_local - utcnow
-                
-                start_day_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
-                end_day_local = now_local.replace(hour=23, minute=59, second=59, microsecond=999999)
-                
-                # Aproximación: si offset es negativo (ej. Peru -5), al restar offset (que es negativo) sumamos 5 horas?
-                # No, offset = Local - UTC.  => Local = UTC + offset => UTC = Local - offset.
-                start_day_utc = start_day_local - offset
-                end_day_utc = end_day_local - offset
-                
-                citas_hoy = Cita.query.filter(
-                    Cita.doctor_id == doctor_id,
-                    Cita.fecha_registro >= start_day_utc,
-                    Cita.fecha_registro <= end_day_utc
-                ).count()
-
-                if citas_hoy >= horario.cupos:
-                    return jsonify({"error": f"No hay cupos disponibles para este médico hoy (Máx: {horario.cupos})"}), 400
-
-            cita = Cita(
-                paciente_id=paciente.id,
-                doctor_id=doctor_id,
-                area=data.get("area_atencion", "Pendiente"),
-                sintomas=data["sintomas"],
-                dni_acompanante=dni_acompanante,
-                nombre_acompanante=nombre_acompanante,
-                telefono_acompanante=telefono_acompanante,
-                datos_adicionales=datos_adicionales if datos_adicionales else None
-            )
-            db.session.add(cita)
-
             db.session.commit()
 
             return jsonify({
-                "message": "Paciente registrado y cita asignada correctamente",
-                "data": {
-                    "paciente": paciente.to_dict(),
-                    "cita": cita.to_dict()
-                }
-            }), 201
+                "message": "Paciente actualizado correctamente" if not is_new else "Paciente registrado correctamente",
+                "id": paciente.id,
+                "is_new": is_new,
+                "data": paciente.to_dict()
+            }), 201 if is_new else 200
 
         except Exception as e:
             db.session.rollback()
             return jsonify({"error": str(e)}), 500
+

@@ -33,6 +33,7 @@ class Paciente(db.Model):
 
     # sintomas removed as it belongs to Cita
     seguro = db.Column(db.String(50))
+    numero_seguro = db.Column(db.String(50))  # Número de afiliación al seguro
     # datos_adicionales removed as it belongs to Cita
 
     fecha_registro = db.Column(db.DateTime, default=datetime.utcnow)
@@ -62,5 +63,6 @@ class Paciente(db.Model):
             "email": self.email,
             "direccion": self.direccion,
             "seguro": self.seguro,
+            "numero_seguro": self.numero_seguro,
             "fecha_registro": str(self.fecha_registro)
         }

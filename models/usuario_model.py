@@ -14,7 +14,7 @@ class Usuario(db.Model):
     # valores: administrador / asistente / medico
 
     activo = db.Column(db.Boolean, default=True)
-    #fecha_creacion = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
         return {

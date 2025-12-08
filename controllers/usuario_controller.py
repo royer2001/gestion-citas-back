@@ -107,17 +107,378 @@ class UsuarioController:
 
     @staticmethod
     def get_medicos():
+        """
+        Obtiene lista de médicos con su área de servicio.
+        OPTIMIZADO: Una sola consulta para todos los médicos y sus áreas.
+        
+        Query params:
+        - area_id: Filtrar por área específica
+        
+        Retorna para cada médico:
+        - Datos básicos del usuario
+        - area_id: ID del área principal (la más frecuente en sus horarios)
+        - area_nombre: Nombre del área principal
+        - especialidad: Alias de area_nombre para compatibilidad frontend
+        """
         try:
-            area_id = request.args.get('area_id')
-            query = Usuario.query.filter_by(rol_id=2)
-
-            if area_id:
+            from models.area_model import Area
+            from sqlalchemy import func, desc
+            from sqlalchemy.orm import aliased
+            
+            area_id_filter = request.args.get('area_id')
+            
+            # Subconsulta para obtener el área más frecuente por médico
+            # Usando ROW_NUMBER() para obtener solo la primera (más frecuente)
+            area_counts = db.session.query(
+                HorarioMedico.medico_id,
+                HorarioMedico.area_id,
+                Area.nombre.label('area_nombre'),
+                func.count(HorarioMedico.id).label('horarios_count')
+            ).join(Area, HorarioMedico.area_id == Area.id)\
+             .group_by(HorarioMedico.medico_id, HorarioMedico.area_id, Area.nombre)\
+             .subquery()
+            
+            # Subconsulta para obtener el máximo count por médico
+            max_counts = db.session.query(
+                area_counts.c.medico_id,
+                func.max(area_counts.c.horarios_count).label('max_count')
+            ).group_by(area_counts.c.medico_id).subquery()
+            
+            # Obtener el área principal (la de mayor count) para cada médico
+            areas_principales = db.session.query(
+                area_counts.c.medico_id,
+                area_counts.c.area_id,
+                area_counts.c.area_nombre
+            ).join(
+                max_counts,
+                (area_counts.c.medico_id == max_counts.c.medico_id) & 
+                (area_counts.c.horarios_count == max_counts.c.max_count)
+            ).subquery()
+            
+            # Query principal: médicos con su área principal
+            query = db.session.query(
+                Usuario,
+                areas_principales.c.area_id,
+                areas_principales.c.area_nombre
+            ).outerjoin(
+                areas_principales,
+                Usuario.id == areas_principales.c.medico_id
+            ).filter(Usuario.rol_id == 2)
+            
+            if area_id_filter:
                 # Filtrar médicos que tienen horarios en esa área
-                medicos_con_horario = db.session.query(HorarioMedico.medico_id).filter_by(area_id=area_id).distinct().all()
-                medico_ids = [m[0] for m in medicos_con_horario]
-                query = query.filter(Usuario.id.in_(medico_ids))
-
-            medicos = query.all()
-            return jsonify([m.to_dict() for m in medicos]), 200
+                medicos_con_horario = db.session.query(
+                    HorarioMedico.medico_id
+                ).filter_by(area_id=area_id_filter).distinct()
+                query = query.filter(Usuario.id.in_(medicos_con_horario))
+            
+            # Ejecutar consulta
+            resultados = query.all()
+            
+            # Construir respuesta
+            lista_medicos = []
+            for usuario, area_id, area_nombre in resultados:
+                medico_dict = usuario.to_dict()
+                medico_dict['name'] = usuario.nombres_completos
+                medico_dict['area_id'] = area_id
+                medico_dict['area_nombre'] = area_nombre
+                medico_dict['especialidad'] = area_nombre
+                lista_medicos.append(medico_dict)
+            
+            return jsonify(lista_medicos), 200
         except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    # ==========================================
+    # CRUD COMPLETO PARA GESTIÓN DE USUARIOS
+    # ==========================================
+
+    @staticmethod
+    def listar_usuarios():
+        """
+        Lista todos los usuarios del sistema con filtros opcionales.
+        
+        Query params:
+        - role: Filtrar por rol (admin, medico, asistente)
+        - search: Búsqueda por nombre o username
+        
+        Retorna lista de usuarios con campos compatibles con frontend:
+        - id, name, username, role, createdAt
+        """
+        try:
+            query = Usuario.query
+
+            # Filtro por rol
+            role_filter = request.args.get('role')
+            if role_filter:
+                # Mapear roles del frontend a los del backend
+                role_mapping = {
+                    'admin': 'administrador',
+                    'medico': 'medico',
+                    'asistente': 'asistente'
+                }
+                backend_role = role_mapping.get(role_filter, role_filter)
+                query = query.filter(Usuario.rol_id == backend_role)
+
+            # Filtro por búsqueda (nombre o username)
+            search = request.args.get('search')
+            if search:
+                search_pattern = f"%{search}%"
+                query = query.filter(
+                    db.or_(
+                        Usuario.nombres_completos.ilike(search_pattern),
+                        Usuario.username.ilike(search_pattern),
+                        Usuario.dni.ilike(search_pattern)
+                    )
+                )
+
+            usuarios = query.order_by(Usuario.id.desc()).all()
+
+            # Mapear roles del backend al frontend
+            role_mapping_reverse = {
+                'administrador': 'admin',
+                'medico': 'medico',
+                'asistente': 'asistente',
+                1: 'admin',
+                2: 'medico',
+                3: 'asistente',
+                '1': 'admin',
+                '2': 'medico',
+                '3': 'asistente'
+            }
+
+            # Nombres legibles de los roles
+            role_names = {
+                'admin': 'Administrador',
+                'medico': 'Médico',
+                'asistente': 'Asistente Técnico',
+                'administrador': 'Administrador',
+                1: 'Administrador',
+                2: 'Médico',
+                3: 'Asistente Técnico',
+                '1': 'Administrador',
+                '2': 'Médico',
+                '3': 'Asistente Técnico'
+            }
+
+            lista = []
+            for u in usuarios:
+                role_key = role_mapping_reverse.get(u.rol_id, u.rol_id)
+                lista.append({
+                    "id": u.id,
+                    "name": u.nombres_completos or u.dni,
+                    "username": u.username or u.dni,
+                    "role": role_key,
+                    "role_nombre": role_names.get(u.rol_id, str(u.rol_id)),
+                    "dni": u.dni,
+                    "activo": u.activo,
+                    "createdAt": str(u.created_at) if u.created_at else None
+                })
+
+            return jsonify(lista), 200
+
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @staticmethod
+    def obtener_usuario(usuario_id):
+        """
+        Obtiene un usuario específico por su ID.
+        """
+        try:
+            usuario = Usuario.query.get(usuario_id)
+            
+            if not usuario:
+                return jsonify({"error": "Usuario no encontrado"}), 404
+
+            role_mapping_reverse = {
+                'administrador': 'admin',
+                'medico': 'medico',
+                'asistente': 'asistente'
+            }
+
+            return jsonify({
+                "id": usuario.id,
+                "name": usuario.nombres_completos or usuario.dni,
+                "username": usuario.username or usuario.dni,
+                "role": role_mapping_reverse.get(usuario.rol_id, usuario.rol_id),
+                "dni": usuario.dni,
+                "activo": usuario.activo,
+                "createdAt": None
+            }), 200
+
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @staticmethod
+    def actualizar_usuario(usuario_id, data):
+        """
+        Actualiza un usuario existente.
+        
+        Body JSON:
+        - name: Nombre completo
+        - username: Nombre de usuario
+        - password: Nueva contraseña (opcional, solo si se quiere cambiar)
+        - role: Rol del usuario (admin, medico, asistente)
+        """
+        try:
+            usuario = Usuario.query.get(usuario_id)
+            
+            if not usuario:
+                return jsonify({"error": "Usuario no encontrado"}), 404
+
+            # Mapear roles del frontend al backend
+            role_mapping = {
+                'admin': 'administrador',
+                'medico': 'medico',
+                'asistente': 'asistente'
+            }
+
+            # Actualizar campos
+            if 'name' in data:
+                usuario.nombres_completos = data['name']
+            
+            if 'username' in data:
+                # Verificar que el username no esté en uso por otro usuario
+                existing = Usuario.query.filter(
+                    Usuario.username == data['username'],
+                    Usuario.id != usuario_id
+                ).first()
+                if existing:
+                    return jsonify({"error": "El nombre de usuario ya está en uso"}), 409
+                usuario.username = data['username']
+
+            if 'password' in data and data['password']:
+                usuario.password = generate_password_hash(data['password'])
+
+            if 'role' in data:
+                backend_role = role_mapping.get(data['role'], data['role'])
+                usuario.rol_id = backend_role
+
+            if 'activo' in data:
+                usuario.activo = data['activo']
+
+            db.session.commit()
+
+            role_mapping_reverse = {
+                'administrador': 'admin',
+                'medico': 'medico',
+                'asistente': 'asistente'
+            }
+
+            return jsonify({
+                "message": "Usuario actualizado correctamente",
+                "usuario": {
+                    "id": usuario.id,
+                    "name": usuario.nombres_completos or usuario.dni,
+                    "username": usuario.username or usuario.dni,
+                    "role": role_mapping_reverse.get(usuario.rol_id, usuario.rol_id),
+                    "dni": usuario.dni,
+                    "activo": usuario.activo
+                }
+            }), 200
+
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"error": str(e)}), 500
+
+    @staticmethod
+    def eliminar_usuario(usuario_id):
+        """
+        Elimina un usuario del sistema.
+        También se puede implementar como soft delete cambiando activo = False
+        """
+        try:
+            usuario = Usuario.query.get(usuario_id)
+            
+            if not usuario:
+                return jsonify({"error": "Usuario no encontrado"}), 404
+
+            # Verificar que no sea el único administrador
+            if usuario.rol_id == 'administrador':
+                admin_count = Usuario.query.filter_by(rol_id='administrador').count()
+                if admin_count <= 1:
+                    return jsonify({
+                        "error": "No se puede eliminar el único administrador del sistema"
+                    }), 400
+
+            db.session.delete(usuario)
+            db.session.commit()
+
+            return jsonify({
+                "message": "Usuario eliminado correctamente"
+            }), 200
+
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"error": str(e)}), 500
+
+    @staticmethod
+    def crear_usuario_completo(data):
+        """
+        Crea un nuevo usuario con todos los campos requeridos por el frontend.
+        
+        Body JSON:
+        - name: Nombre completo
+        - username: Nombre de usuario
+        - password: Contraseña
+        - role: Rol (admin, medico, asistente)
+        """
+        try:
+            required = ["name", "username", "password", "role"]
+            for field in required:
+                if field not in data or not data[field]:
+                    return jsonify({"error": f"El campo '{field}' es obligatorio"}), 400
+
+            # Mapear roles del frontend al backend
+            role_mapping = {
+                'admin': 'administrador',
+                'medico': 'medico',
+                'asistente': 'asistente'
+            }
+
+            # Verificar username único
+            if Usuario.query.filter_by(username=data["username"]).first():
+                return jsonify({"error": "El nombre de usuario ya está registrado"}), 409
+
+            # Generar DNI automático si no se proporciona (o usar username como identificador)
+            dni = data.get("dni") or data["username"]
+            
+            # Verificar DNI único
+            if Usuario.query.filter_by(dni=dni).first():
+                return jsonify({"error": "El DNI ya está registrado"}), 409
+
+            usuario = Usuario(
+                dni=dni,
+                username=data["username"],
+                password=generate_password_hash(data["password"]),
+                rol_id=role_mapping.get(data["role"], data["role"]),
+                nombres_completos=data["name"],
+                activo=True
+            )
+
+            db.session.add(usuario)
+            db.session.commit()
+
+            role_mapping_reverse = {
+                'administrador': 'admin',
+                'medico': 'medico',
+                'asistente': 'asistente'
+            }
+
+            return jsonify({
+                "message": "Usuario creado correctamente",
+                "usuario": {
+                    "id": usuario.id,
+                    "name": usuario.nombres_completos,
+                    "username": usuario.username,
+                    "role": role_mapping_reverse.get(usuario.rol_id, usuario.rol_id),
+                    "dni": usuario.dni,
+                    "activo": usuario.activo,
+                    "createdAt": None
+                }
+            }), 201
+
+        except Exception as e:
+            db.session.rollback()
             return jsonify({"error": str(e)}), 500

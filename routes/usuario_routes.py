@@ -66,3 +66,53 @@ def logout():
 def get_medicos():
     return UsuarioController.get_medicos()
 
+
+# ==========================================
+# CRUD COMPLETO PARA GESTIÓN DE USUARIOS
+# ==========================================
+
+# GET - Listar todos los usuarios
+@usuario_bp.get("/users")
+@token_required
+@roles_required("administrador", 1, "1")  # Soporta string y número
+def listar_usuarios():
+    """Lista todos los usuarios del sistema con filtros opcionales."""
+    return UsuarioController.listar_usuarios()
+
+
+# POST - Crear nuevo usuario
+@usuario_bp.post("/users")
+@token_required
+@roles_required("administrador", 1, "1")  # Soporta string y número
+def crear_usuario_nuevo():
+    """Crea un nuevo usuario en el sistema."""
+    data = request.get_json()
+    return UsuarioController.crear_usuario_completo(data)
+
+
+# GET - Obtener usuario por ID
+@usuario_bp.get("/users/<int:usuario_id>")
+@token_required
+@roles_required("administrador", 1, "1")  # Soporta string y número
+def obtener_usuario(usuario_id):
+    """Obtiene un usuario específico por su ID."""
+    return UsuarioController.obtener_usuario(usuario_id)
+
+
+# PUT - Actualizar usuario
+@usuario_bp.put("/users/<int:usuario_id>")
+@token_required
+@roles_required("administrador", 1, "1")  # Soporta string y número
+def actualizar_usuario(usuario_id):
+    """Actualiza un usuario existente."""
+    data = request.get_json()
+    return UsuarioController.actualizar_usuario(usuario_id, data)
+
+
+# DELETE - Eliminar usuario
+@usuario_bp.delete("/users/<int:usuario_id>")
+@token_required
+@roles_required("administrador", 1, "1")  # Soporta string y número
+def eliminar_usuario(usuario_id):
+    """Elimina un usuario del sistema."""
+    return UsuarioController.eliminar_usuario(usuario_id)
