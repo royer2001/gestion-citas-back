@@ -1,9 +1,10 @@
-from flask import jsonify, request
+from flask import jsonify, request, send_file, Response
 from extensions.database import db
 from models.cita_model import Cita
 from models.paciente_model import Paciente
 from models.horario_medico_model import HorarioMedico
 from models.area_model import Area
+from services.pdf_service import PDFService
 from datetime import datetime
 
 class CitaController:
@@ -319,3 +320,213 @@ class CitaController:
         except Exception as e:
             db.session.rollback()
             return jsonify({"error": str(e)}), 500
+
+    @staticmethod
+    def obtener_citas_confirmadas_para_impresion():
+        """
+        Obtiene las citas confirmadas para una fecha y área específica.
+        
+        IMPORTANTE: Las citas se ordenan por fecha_registro (orden de llegada/registro)
+        para que la numeración refleje el orden en que los pacientes registraron su cita.
+        
+        Query params:
+        - fecha: Fecha de las citas en formato YYYY-MM-DD (requerido)
+        - area_id: ID del área/servicio (requerido)
+        
+        Returns:
+            JSON con la lista de citas confirmadas numeradas
+        """
+        try:
+            fecha = request.args.get('fecha')
+            area_id = request.args.get('area_id', type=int)
+            
+            # Validar parámetros requeridos
+            if not fecha:
+                return jsonify({
+                    'success': False,
+                    'error': 'El parámetro fecha es requerido (formato: YYYY-MM-DD)'
+                }), 400
+            
+            if not area_id:
+                return jsonify({
+                    'success': False,
+                    'error': 'El parámetro area_id es requerido'
+                }), 400
+            
+            # Validar formato de fecha
+            try:
+                fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").date()
+            except ValueError:
+                return jsonify({
+                    'success': False,
+                    'error': 'Formato de fecha inválido. Use YYYY-MM-DD'
+                }), 400
+            
+            # Verificar que el área existe
+            area = Area.query.get(area_id)
+            if not area:
+                return jsonify({
+                    'success': False,
+                    'error': 'Área no encontrada'
+                }), 404
+            
+            # Consultar citas confirmadas ordenadas por fecha de registro (orden de llegada)
+            citas = Cita.query.filter(
+                Cita.fecha == fecha_obj,
+                Cita.area_id == area_id,
+                Cita.estado == 'confirmada'
+            ).order_by(
+                Cita.fecha_registro.asc()  # Ordenar por orden de registro (ascendente)
+            ).all()
+            
+            # Construir respuesta con numeración
+            citas_data = []
+            for numero, cita in enumerate(citas, start=1):
+                cita_info = {
+                    'numero': numero,  # Numeración automática por orden de registro
+                    'id': cita.id,
+                    'paciente': {
+                        'id': cita.paciente.id,
+                        'nombres': cita.paciente.nombres,
+                        'apellido_paterno': cita.paciente.apellido_paterno,
+                        'apellido_materno': cita.paciente.apellido_materno,
+                        'dni': cita.paciente.dni,
+                        'telefono': cita.paciente.telefono
+                    } if cita.paciente else None,
+                    'horario': {
+                        'id': cita.horario.id,
+                        'hora_inicio': str(cita.horario.hora_inicio),
+                        'hora_fin': str(cita.horario.hora_fin),
+                        'turno': cita.horario.turno,
+                        'turno_nombre': cita.horario.turno_nombre
+                    } if cita.horario else None,
+                    'fecha_registro': cita.fecha_registro.isoformat() if cita.fecha_registro else None
+                }
+                citas_data.append(cita_info)
+            
+            return jsonify({
+                'success': True,
+                'fecha': fecha,
+                'area': {
+                    'id': area.id,
+                    'nombre': area.nombre
+                },
+                'total': len(citas_data),
+                'citas': citas_data
+            }), 200
+            
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': f'Error al obtener citas: {str(e)}'
+            }), 500
+
+    @staticmethod
+    def generar_pdf_citas_confirmadas():
+        """
+        Genera un PDF con las citas confirmadas para una fecha y área específica.
+        
+        Query params:
+        - fecha: Fecha de las citas en formato YYYY-MM-DD (requerido)
+        - area_id: ID del área/servicio (requerido)
+        
+        Returns:
+            PDF file como respuesta directa para descarga
+        """
+        try:
+            fecha = request.args.get('fecha')
+            area_id = request.args.get('area_id', type=int)
+            
+            # Validar parámetros requeridos
+            if not fecha:
+                return jsonify({
+                    'success': False,
+                    'error': 'El parámetro fecha es requerido (formato: YYYY-MM-DD)'
+                }), 400
+            
+            if not area_id:
+                return jsonify({
+                    'success': False,
+                    'error': 'El parámetro area_id es requerido'
+                }), 400
+            
+            # Validar formato de fecha
+            try:
+                fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").date()
+            except ValueError:
+                return jsonify({
+                    'success': False,
+                    'error': 'Formato de fecha inválido. Use YYYY-MM-DD'
+                }), 400
+            
+            # Verificar que el área existe
+            area = Area.query.get(area_id)
+            if not area:
+                return jsonify({
+                    'success': False,
+                    'error': 'Área no encontrada'
+                }), 404
+            
+            # Consultar citas confirmadas ordenadas por fecha de registro
+            citas = Cita.query.filter(
+                Cita.fecha == fecha_obj,
+                Cita.area_id == area_id,
+                Cita.estado == 'confirmada'
+            ).order_by(
+                Cita.fecha_registro.asc()
+            ).all()
+            
+            # Construir datos para el PDF
+            citas_data = []
+            for numero, cita in enumerate(citas, start=1):
+                cita_info = {
+                    'numero': numero,
+                    'id': cita.id,
+                    'paciente': {
+                        'id': cita.paciente.id,
+                        'nombres': cita.paciente.nombres,
+                        'apellido_paterno': cita.paciente.apellido_paterno,
+                        'apellido_materno': cita.paciente.apellido_materno,
+                        'dni': cita.paciente.dni,
+                        'telefono': cita.paciente.telefono
+                    } if cita.paciente else None,
+                    'horario': {
+                        'id': cita.horario.id,
+                        'hora_inicio': str(cita.horario.hora_inicio),
+                        'hora_fin': str(cita.horario.hora_fin),
+                        'turno': cita.horario.turno,
+                        'turno_nombre': cita.horario.turno_nombre
+                    } if cita.horario else None,
+                    'fecha_registro': cita.fecha_registro.isoformat() if cita.fecha_registro else None
+                }
+                citas_data.append(cita_info)
+            
+            # Datos del área
+            area_data = {
+                'id': area.id,
+                'nombre': area.nombre
+            }
+            
+            # Generar PDF
+            pdf_buffer = PDFService.generar_pdf_citas_confirmadas(
+                fecha=fecha,
+                area=area_data,
+                citas=citas_data
+            )
+            
+            # Generar nombre del archivo
+            filename = PDFService.generar_nombre_archivo(fecha, area.nombre)
+            
+            # Enviar PDF como respuesta
+            return send_file(
+                pdf_buffer,
+                mimetype='application/pdf',
+                as_attachment=True,
+                download_name=f"{filename}.pdf"
+            )
+            
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': f'Error al generar PDF: {str(e)}'
+            }), 500

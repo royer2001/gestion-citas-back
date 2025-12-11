@@ -22,3 +22,27 @@ def actualizar_cita(id):
 @cita_bp.delete("/<int:id>")
 def eliminar_cita(id):
     return CitaController.eliminar(id)
+
+@cita_bp.get("/confirmadas")
+def obtener_citas_confirmadas():
+    """
+    Obtener citas confirmadas para impresión.
+    Ordenadas por fecha de registro (orden de llegada).
+    
+    Query params:
+    - fecha: YYYY-MM-DD (requerido)
+    - area_id: ID del área (requerido)
+    """
+    return CitaController.obtener_citas_confirmadas_para_impresion()
+
+@cita_bp.get("/confirmadas/pdf")
+def generar_pdf_citas_confirmadas():
+    """
+    Generar PDF de citas confirmadas para impresión.
+    Retorna un archivo PDF para descargar.
+    
+    Query params:
+    - fecha: YYYY-MM-DD (requerido)
+    - area_id: ID del área (requerido)
+    """
+    return CitaController.generar_pdf_citas_confirmadas()

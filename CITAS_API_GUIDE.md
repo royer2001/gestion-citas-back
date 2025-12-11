@@ -372,7 +372,249 @@ Elimina permanentemente una cita.
 
 ---
 
-### 8. Listar Áreas (para filtros)
+### 8. Obtener Citas Confirmadas (Para Impresión)
+
+**`GET /api/citas/confirmadas`**
+
+Endpoint especializado para obtener citas confirmadas ordenadas por fecha de registro (orden de llegada) con numeración automática. Ideal para generar listas de impresión que se publican en la entrada del servicio.
+
+#### Query Parameters (obligatorios):
+
+| Parámetro | Tipo | Obligatorio | Descripción |
+|-----------|------|-------------|-------------|
+| `fecha` | string (YYYY-MM-DD) | ✅ Sí | Fecha de las citas a consultar |
+| `area_id` | integer | ✅ Sí | ID del área/servicio |
+
+#### Response (200 OK):
+```json
+{
+    "success": true,
+    "fecha": "2025-12-11",
+    "area": {
+        "id": 1,
+        "nombre": "Medicina General"
+    },
+    "total": 15,
+    "citas": [
+        {
+            "numero": 1,
+            "id": 123,
+            "paciente": {
+                "id": 45,
+                "nombres": "Juan Carlos",
+                "apellido_paterno": "García",
+                "apellido_materno": "López",
+                "dni": "12345678",
+                "telefono": "987654321"
+            },
+            "horario": {
+                "id": 10,
+                "hora_inicio": "08:00:00",
+                "hora_fin": "08:15:00",
+                "turno": "M",
+                "turno_nombre": "Mañana"
+            },
+            "fecha_registro": "2025-12-10T14:30:00"
+        },
+        {
+            "numero": 2,
+            "id": 124,
+            "paciente": {
+                "id": 46,
+                "nombres": "María Elena",
+                "apellido_paterno": "Rodríguez",
+                "apellido_materno": "Sánchez",
+                "dni": "87654321",
+                "telefono": "912345678"
+            },
+            "horario": {
+                "id": 11,
+                "hora_inicio": "08:15:00",
+                "hora_fin": "08:30:00",
+                "turno": "M",
+                "turno_nombre": "Mañana"
+            },
+            "fecha_registro": "2025-12-10T15:45:00"
+        }
+    ]
+}
+```
+
+#### Posibles Errores:
+
+| Código | Mensaje | Descripción |
+|--------|---------|-------------|
+| 400 | `El parámetro fecha es requerido` | No se envió el parámetro fecha |
+| 400 | `El parámetro area_id es requerido` | No se envió el parámetro area_id |
+| 400 | `Formato de fecha inválido` | La fecha no tiene formato YYYY-MM-DD |
+| 404 | `Área no encontrada` | El area_id no existe en la base de datos |
+
+#### Ejemplo de uso con cURL:
+
+```bash
+curl -X GET "http://localhost:5000/api/citas/confirmadas?fecha=2025-12-11&area_id=1"
+```
+
+#### TypeScript Service (CitaService):
+
+```typescript
+// Interfaces para citas confirmadas
+export interface CitaConfirmadaParams {
+  fecha: string;       // YYYY-MM-DD
+  area_id: number;
+}
+
+export interface CitaConfirmadaPaciente {
+  id: number;
+  nombres: string;
+  apellido_paterno: string;
+  apellido_materno: string;
+  dni: string;
+  telefono?: string | null;
+}
+
+export interface CitaConfirmadaHorario {
+  id: number;
+  hora_inicio: string;
+  hora_fin: string;
+  turno: 'M' | 'T';
+  turno_nombre: string;
+}
+
+export interface CitaConfirmadaItem {
+  numero: number;
+  id: number;
+  paciente: CitaConfirmadaPaciente | null;
+  horario: CitaConfirmadaHorario | null;
+  fecha_registro: string | null;
+}
+
+export interface CitaConfirmadaResponse {
+  success: boolean;
+  fecha: string;
+  area: {
+    id: number;
+    nombre: string;
+  };
+  total: number;
+  citas: CitaConfirmadaItem[];
+}
+
+// Agregar al citaService
+const citaService = {
+  // ... otros métodos existentes
+
+  // Obtener citas confirmadas para impresión
+  getCitasConfirmadas(params: CitaConfirmadaParams) {
+    return api.get<CitaConfirmadaResponse>('/citas/confirmadas', { params });
+  }
+}
+```
+
+#### Notas Importantes:
+
+1. **Orden de registro**: La numeración refleja el orden cronológico en que los pacientes registraron su cita (primer registro = número 1).
+2. **Estado confirmada**: Solo se incluyen citas que ya han sido confirmadas por el personal del centro de salud.
+3. **Uso principal**: Esta lista está pensada para ser impresa y publicada en la entrada del servicio.
+4. **Actualización**: Si se confirman más citas después de imprimir, se deberá generar una nueva lista actualizada.
+
+---
+
+### 9. Generar PDF de Citas Confirmadas
+
+**`GET /api/citas/confirmadas/pdf`**
+
+Genera y descarga un archivo PDF con la lista de citas confirmadas. El PDF incluye un diseño profesional con:
+- Encabezado con nombre del centro de salud
+- Información del área y fecha
+- Tabla de citas con numeración, DNI, nombre del paciente, horario y turno
+- Pie de página con fecha de generación
+
+#### Query Parameters (obligatorios):
+
+| Parámetro | Tipo | Obligatorio | Descripción |
+|-----------|------|-------------|-------------|
+| `fecha` | string (YYYY-MM-DD) | ✅ Sí | Fecha de las citas a consultar |
+| `area_id` | integer | ✅ Sí | ID del área/servicio |
+
+#### Response (200 OK):
+
+Retorna directamente el archivo PDF con el header `Content-Type: application/pdf`.
+
+El archivo se descarga con el nombre: `citas_confirmadas_{area}_{fecha}.pdf`
+
+Por ejemplo: `citas_confirmadas_medicina_general_2025-12-11.pdf`
+
+#### Posibles Errores:
+
+| Código | Mensaje | Descripción |
+|--------|---------|-------------|
+| 400 | `El parámetro fecha es requerido` | No se envió el parámetro fecha |
+| 400 | `El parámetro area_id es requerido` | No se envió el parámetro area_id |
+| 400 | `Formato de fecha inválido` | La fecha no tiene formato YYYY-MM-DD |
+| 404 | `Área no encontrada` | El area_id no existe en la base de datos |
+
+#### Ejemplo de uso con cURL:
+
+```bash
+# Descargar PDF directamente
+curl -X GET "http://localhost:5000/api/citas/confirmadas/pdf?fecha=2025-12-11&area_id=1" -o citas.pdf
+
+# O abrir en navegador
+open "http://localhost:5000/api/citas/confirmadas/pdf?fecha=2025-12-11&area_id=1"
+```
+
+#### TypeScript Service (CitaService):
+
+```typescript
+// Agregar al citaService
+const citaService = {
+  // ... otros métodos existentes
+
+  // Descargar PDF de citas confirmadas
+  descargarPDFCitasConfirmadas(params: CitaConfirmadaParams) {
+    return api.get('/citas/confirmadas/pdf', {
+      params,
+      responseType: 'blob'  // Importante: recibir como blob para archivos
+    });
+  }
+}
+
+// Ejemplo de uso en un componente Vue
+const descargarPDF = async () => {
+  try {
+    const response = await citaService.descargarPDFCitasConfirmadas({
+      fecha: '2025-12-11',
+      area_id: 1
+    });
+    
+    // Crear URL del blob y descargar
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `citas_confirmadas_${fecha}_${areaId}.pdf`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error('Error al descargar PDF:', error);
+  }
+};
+```
+
+#### Diseño del PDF:
+
+El PDF generado incluye:
+- **Encabezado**: "CENTRO DE SALUD" y "Lista de Citas Confirmadas"
+- **Información**: Área, Fecha formateada en español, Total de citas
+- **Tabla**: Con columnas N°, DNI, Paciente (apellidos, nombres), Horario, Turno
+- **Estilos**: Colores alternados en filas, encabezado azul, bordes suaves
+- **Pie de página**: Fecha y hora de generación del documento
+
+---
+
+### 10. Listar Áreas (para filtros)
 
 **`GET /api/areas/`**
 

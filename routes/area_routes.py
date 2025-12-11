@@ -17,6 +17,11 @@ def update_area(id):
     data = request.get_json()
     return AreaController.update(id, data)
 
+@area_bp.post("/recomendar")
+def recommend_area():
+    data = request.get_json()
+    return AreaController.recommend(data)
+
 @area_bp.delete("/<int:id>")
 def delete_area(id):
     return AreaController.delete(id)

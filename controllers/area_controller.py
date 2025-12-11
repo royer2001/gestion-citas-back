@@ -1,6 +1,7 @@
 from flask import jsonify
 from extensions.database import db
 from models.area_model import Area
+from services.gemini_services import GeminiService
 
 class AreaController:
 
@@ -82,4 +83,26 @@ class AreaController:
             return jsonify({"message": "Área eliminada correctamente"}), 200
         except Exception as e:
             db.session.rollback()
+            return jsonify({"error": str(e)}), 500
+    @staticmethod
+    def recommend(data):
+        try:
+            sintomas = data.get("sintomas")
+            if not sintomas:
+                return jsonify({"error": "Debe proporcionar los síntomas del paciente"}), 400
+            
+            # Obtener todas las áreas activas
+            areas = Area.query.filter_by(activo=True).all()
+            if not areas:
+                return jsonify({"error": "No hay áreas disponibles para recomendar"}), 404
+                
+            areas_list = [a.to_dict() for a in areas]
+            
+            recommendation = GeminiService.recommend_area(sintomas, areas_list)
+            
+            if "error" in recommendation:
+                return jsonify(recommendation), 500 if "status" not in recommendation else recommendation["status"]
+                
+            return jsonify(recommendation), 200
+        except Exception as e:
             return jsonify({"error": str(e)}), 500

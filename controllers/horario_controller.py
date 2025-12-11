@@ -11,110 +11,141 @@ class HorarioController:
     @staticmethod
     def create_horarios_mensuales():
         """
-        Crea horarios para todo un mes.
-        
-        Payload esperado:
-        {
-            "medico_id": 1,
-            "area_id": 1,
-            "mes": "2025-01",  # YYYY-MM
-            "dias_seleccionados": [0, 1, 2, 3, 4],  # 0=Lun, 1=Mar, ..., 6=Dom
-            "turnos": {
-                "manana": {
-                    "activo": true,
-                    "cupos": 5
-                },
-                "tarde": {
-                    "activo": true,
-                    "cupos": 7
-                }
-            }
-        }
+        Crea horarios para todo un mes de forma OPTIMIZADA.
+        Reduce las consultas a BD de N a 1.
         """
         try:
             data = request.json
             
             medico_id = data.get("medico_id")
             area_id = data.get("area_id")
-            mes_str = data.get("mes")  # Formato "YYYY-MM"
+            mes_str = data.get("mes")
             dias_seleccionados = data.get("dias_seleccionados", [])
             turnos = data.get("turnos", {})
             
-            # Validaciones
-            if not all([medico_id, area_id, mes_str, dias_seleccionados]):
-                return jsonify({"error": "Faltan datos obligatorios: medico_id, area_id, mes, dias_seleccionados"}), 400
+            # --- Validaciones Básicas ---
+            if not all([medico_id, area_id, mes_str]):
+                return jsonify({"error": "Faltan datos obligatorios"}), 400
             
-            # Validar que al menos un turno esté activo
+            if not dias_seleccionados:
+                return jsonify({"error": "Debe seleccionar al menos un día"}), 400
+            
             turno_manana = turnos.get("manana", {})
             turno_tarde = turnos.get("tarde", {})
             
             if not turno_manana.get("activo") and not turno_tarde.get("activo"):
-                return jsonify({"error": "Debe activar al menos un turno (mañana o tarde)"}), 400
+                return jsonify({"error": "Debe activar al menos un turno"}), 400
             
-            # Parsear mes
+            # Validar mes
             try:
                 year, month = map(int, mes_str.split("-"))
             except ValueError:
-                return jsonify({"error": "Formato de mes inválido. Use YYYY-MM"}), 400
+                return jsonify({"error": "Formato de mes inválido"}), 400
+
+            # --- Preparación de Datos (Bulk Processing) ---
             
-            # Obtener días del mes
-            _, dias_en_mes = monthrange(year, month)
+            # 1. Convertir strings a objetos date y filtrar fechas inválidas
+            fechas_validas = []
+            errores_fechas = []
             
-            horarios_creados = []
-            horarios_actualizados = []
+            for f_str in dias_seleccionados:
+                try:
+                    fecha = datetime.strptime(f_str, "%Y-%m-%d").date()
+                    if fecha.year == year and fecha.month == month:
+                        fechas_validas.append(fecha)
+                    else:
+                        errores_fechas.append(f"Fecha {f_str} fuera del mes {mes_str}")
+                except ValueError:
+                    errores_fechas.append(f"Formato inválido: {f_str}")
             
-            for dia in range(1, dias_en_mes + 1):
-                fecha_actual = date(year, month, dia)
-                # Calcular día de la semana (0=Lun, ..., 6=Dom)
-                dia_semana = fecha_actual.weekday()
+            if not fechas_validas:
+                return jsonify({"error": "No hay fechas válidas para procesar", "detalles": errores_fechas}), 400
+
+            # 2. OPTIMIZACIÓN: Traer TODOS los horarios existentes para estas fechas en UNA sola consulta
+            # Esto evita el problema N+1 (hacer una query por cada día)
+            existing_records = HorarioMedico.query.filter(
+                HorarioMedico.medico_id == medico_id,
+                HorarioMedico.fecha.in_(fechas_validas)
+            ).all()
+
+            # 3. Crear mapa de búsqueda rápida: {(fecha, turno): objeto_horario}
+            mapa_existentes = {
+                (h.fecha, h.turno): h for h in existing_records
+            }
+
+            contadores = {"creados": 0, "actualizados": 0}
+            nuevos_objetos = []
+
+            # 4. Procesar en memoria
+            for fecha in fechas_validas:
+                dia_semana = fecha.weekday() # 0=Lun, 6=Dom
                 
-                if dia_semana in dias_seleccionados:
-                    # Procesar turno mañana
-                    if turno_manana.get("activo"):
-                        resultado = HorarioController._crear_o_actualizar_horario(
-                            medico_id=medico_id,
-                            area_id=area_id,
-                            fecha=fecha_actual,
-                            dia_semana=dia_semana,
-                            turno='M',
-                            cupos=turno_manana.get("cupos", 5)
-                        )
-                        if resultado["is_new"]:
-                            horarios_creados.append(resultado["horario"])
-                        else:
-                            horarios_actualizados.append(resultado["horario"])
+                # Definir qué turnos vamos a procesar
+                turnos_a_procesar = []
+                if turno_manana.get("activo"):
+                    turnos_a_procesar.append(('M', turno_manana.get("cupos", 7)))
+                if turno_tarde.get("activo"):
+                    turnos_a_procesar.append(('T', turno_tarde.get("cupos", 7)))
+                
+                for codigo_turno, cupos in turnos_a_procesar:
+                    clave = (fecha, codigo_turno)
+                    horario = mapa_existentes.get(clave)
                     
-                    # Procesar turno tarde
-                    if turno_tarde.get("activo"):
-                        resultado = HorarioController._crear_o_actualizar_horario(
+                    if horario:
+                        # Actualizar existente
+                        cambio = False
+                        if horario.area_id != area_id:
+                            horario.area_id = area_id
+                            cambio = True
+                        if horario.cupos != cupos:
+                            horario.cupos = cupos
+                            cambio = True
+                        
+                        if cambio:
+                            contadores["actualizados"] += 1
+                        # Si no hubo cambios, no contamos pero tampoco hacemos nada (SQLAlchemy lo ignora)
+                    else:
+                        # Crear nuevo
+                        nuevo = HorarioMedico(
                             medico_id=medico_id,
                             area_id=area_id,
-                            fecha=fecha_actual,
+                            fecha=fecha,
                             dia_semana=dia_semana,
-                            turno='T',
-                            cupos=turno_tarde.get("cupos", 7)
+                            turno=codigo_turno,
+                            cupos=cupos
                         )
-                        if resultado["is_new"]:
-                            horarios_creados.append(resultado["horario"])
-                        else:
-                            horarios_actualizados.append(resultado["horario"])
+                        nuevos_objetos.append(nuevo)
+                        contadores["creados"] += 1
+
+            # 5. Guardar todo en bloque
+            if nuevos_objetos:
+                db.session.add_all(nuevos_objetos)
             
             db.session.commit()
             
-            return jsonify({
-                "message": f"Horarios procesados correctamente",
-                "creados": len(horarios_creados),
-                "actualizados": len(horarios_actualizados),
-                "horarios": [h.to_dict() for h in horarios_creados + horarios_actualizados]
-            }), 201
+            response = {
+                "message": "Horarios procesados correctamente",
+                "creados": contadores["creados"],
+                "actualizados": contadores["actualizados"],
+                # Retornamos solo un resumen numérico para no sobrecargar la respuesta JSON con 60+ objetos
+                "total_procesados": contadores["creados"] + contadores["actualizados"]
+            }
+            
+            if errores_fechas:
+                response["advertencias"] = errores_fechas
+            
+            return jsonify(response), 201
             
         except Exception as e:
             db.session.rollback()
-            return jsonify({"error": str(e)}), 500
+            print(f"Error al crear horarios: {str(e)}") # Log para debug
+            return jsonify({"error": "Error interno del servidor", "detalle": str(e)}), 500
 
     @staticmethod
     def _crear_o_actualizar_horario(medico_id, area_id, fecha, dia_semana, turno, cupos):
-        """Crea o actualiza un horario individual"""
+        """
+        [DEPRECADO para cargas masivas] Mantenido solo para compatibilidad de llamadas individuales legacy.
+        """
         horario_existente = HorarioMedico.query.filter_by(
             medico_id=medico_id,
             fecha=fecha,

@@ -28,11 +28,11 @@ POST /api/horarios/mensual
     "medico_id": 1,
     "area_id": 1,
     "mes": "2025-01",
-    "dias_seleccionados": [0, 1, 2, 3, 4],
+    "dias_seleccionados": ["2025-01-02", "2025-01-03", "2025-01-06", "2025-01-07", "2025-01-08"],
     "turnos": {
         "manana": {
             "activo": true,
-            "cupos": 5
+            "cupos": 7
         },
         "tarde": {
             "activo": true,
@@ -43,9 +43,11 @@ POST /api/horarios/mensual
 ```
 
 **Notas:**
-- `dias_seleccionados`: Array de días de la semana (0=Lunes, 1=Martes, ..., 6=Domingo)
+- `dias_seleccionados`: Array de fechas específicas en formato YYYY-MM-DD
+- Las fechas deben pertenecer al mes indicado en el campo `mes`
 - Al menos un turno debe estar activo
 - Si un horario ya existe para esa fecha/turno, se actualiza
+- El endpoint valida que las fechas sean del mes correcto
 
 **Response (201):**
 ```json
@@ -53,7 +55,8 @@ POST /api/horarios/mensual
     "message": "Horarios procesados correctamente",
     "creados": 20,
     "actualizados": 0,
-    "horarios": [...]
+    "total_procesados": 20,
+    "advertencias": []  // Solo presente si hubo errores parciales
 }
 ```
 
@@ -197,7 +200,7 @@ export interface CrearHorariosMensualesPayload {
     medico_id: number
     area_id: number
     mes: string  // YYYY-MM
-    dias_seleccionados: number[]  // 0-6
+    dias_seleccionados: string[]  // Array de fechas "YYYY-MM-DD"
     turnos: {
         manana: TurnoConfig
         tarde: TurnoConfig
@@ -912,3 +915,568 @@ Para mostrar ambos turnos en el calendario:
 3. **Compatibilidad:** Los endpoints legacy siguen funcionando pero devuelven el nuevo formato.
 
 4. **Constraint Único:** No puede haber dos horarios para el mismo médico, fecha y turno.
+
+---
+
+# Guía de Implementación: Descarga de PDF de Citas Confirmadas
+
+Esta guía describe cómo implementar la funcionalidad de descarga de PDF de citas confirmadas para impresión.
+
+## Objetivo
+
+Permitir a los usuarios descargar un PDF con la lista de citas confirmadas filtradas por **fecha** y **área**, ordenadas por fecha de registro (orden de llegada) y numeradas para ser publicadas en la entrada del servicio.
+
+---
+
+## 1. Endpoints Disponibles
+
+### **GET /api/citas/confirmadas**
+Retorna JSON con las citas confirmadas.
+
+### **GET /api/citas/confirmadas/pdf**
+Retorna un archivo PDF para descarga directa.
+
+**Parámetros (ambos endpoints):**
+| Parámetro | Tipo | Obligatorio | Descripción |
+|-----------|------|-------------|-------------|
+| `fecha` | string (YYYY-MM-DD) | ✅ Sí | Fecha de las citas |
+| `area_id` | integer | ✅ Sí | ID del área/servicio |
+
+---
+
+## 2. Actualizar `citaService.ts`
+
+Agregar las interfaces y métodos para citas confirmadas y descarga de PDF:
+
+```typescript
+// src/services/citaService.ts
+import api from './api'
+
+// ============================================
+// INTERFACES PARA CITAS CONFIRMADAS
+// ============================================
+
+export interface CitaConfirmadaParams {
+  fecha: string;       // YYYY-MM-DD
+  area_id: number;
+}
+
+export interface CitaConfirmadaPaciente {
+  id: number;
+  nombres: string;
+  apellido_paterno: string;
+  apellido_materno: string;
+  dni: string;
+  telefono?: string | null;
+}
+
+export interface CitaConfirmadaHorario {
+  id: number;
+  hora_inicio: string;
+  hora_fin: string;
+  turno: 'M' | 'T';
+  turno_nombre: string;
+}
+
+export interface CitaConfirmadaItem {
+  numero: number;
+  id: number;
+  paciente: CitaConfirmadaPaciente | null;
+  horario: CitaConfirmadaHorario | null;
+  fecha_registro: string | null;
+}
+
+export interface CitaConfirmadaResponse {
+  success: boolean;
+  fecha: string;
+  area: {
+    id: number;
+    nombre: string;
+  };
+  total: number;
+  citas: CitaConfirmadaItem[];
+}
+
+// ============================================
+// SERVICIO DE CITAS
+// ============================================
+
+const citaService = {
+  // ... otros métodos existentes ...
+
+  /**
+   * Obtener citas confirmadas (respuesta JSON)
+   * Útil para vista previa antes de imprimir
+   */
+  getCitasConfirmadas(params: CitaConfirmadaParams) {
+    return api.get<CitaConfirmadaResponse>('/citas/confirmadas', { params });
+  },
+
+  /**
+   * Descargar PDF de citas confirmadas
+   * Retorna un Blob con el archivo PDF
+   */
+  descargarPDFCitasConfirmadas(params: CitaConfirmadaParams) {
+    return api.get('/citas/confirmadas/pdf', {
+      params,
+      responseType: 'blob'  // ¡Importante! Recibir como blob para archivos
+    });
+  }
+}
+
+export default citaService
+```
+
+---
+
+## 3. Crear Componente de Impresión de Citas
+
+Crear un nuevo componente `ImprimirCitas.vue` o integrarlo en `AdminCitas.vue`:
+
+### Opción A: Modal de Impresión (recomendado)
+
+```vue
+<!-- src/components/modals/ModalImprimirCitas.vue -->
+<template>
+  <div v-if="visible" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden">
+      
+      <!-- Header -->
+      <div class="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4 text-white">
+        <div class="flex justify-between items-center">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+              <i class="pi pi-print text-xl"></i>
+            </div>
+            <div>
+              <h3 class="text-xl font-bold">Imprimir Citas Confirmadas</h3>
+              <p class="text-blue-100 text-sm">Generar PDF para publicar</p>
+            </div>
+          </div>
+          <button @click="cerrar" class="w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition">
+            <i class="pi pi-times"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Contenido -->
+      <div class="p-6 space-y-5">
+        
+        <!-- Selector de Fecha -->
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-2">
+            <i class="pi pi-calendar mr-1 text-blue-600"></i>
+            Fecha de las citas <span class="text-red-500">*</span>
+          </label>
+          <input 
+            type="date" 
+            v-model="fecha" 
+            required
+            class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+          />
+        </div>
+
+        <!-- Selector de Área -->
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-2">
+            <i class="pi pi-building mr-1 text-blue-600"></i>
+            Área / Servicio <span class="text-red-500">*</span>
+          </label>
+          <select 
+            v-model="areaId" 
+            required
+            class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+          >
+            <option :value="null">Seleccione un área</option>
+            <option v-for="area in areas" :key="area.id" :value="area.id">
+              {{ area.nombre }}
+            </option>
+          </select>
+        </div>
+
+        <!-- Vista Previa -->
+        <div v-if="citasPreview" class="bg-gray-50 rounded-xl p-4 border border-gray-200">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-sm font-semibold text-gray-700">Vista Previa</span>
+            <span class="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-bold">
+              {{ citasPreview.total }} citas
+            </span>
+          </div>
+          
+          <div v-if="citasPreview.total === 0" class="text-center py-4 text-gray-500">
+            <i class="pi pi-inbox text-3xl mb-2"></i>
+            <p class="text-sm">No hay citas confirmadas para esta fecha y área</p>
+          </div>
+          
+          <div v-else class="space-y-2 max-h-40 overflow-y-auto">
+            <div 
+              v-for="cita in citasPreview.citas.slice(0, 5)" 
+              :key="cita.id"
+              class="flex items-center gap-3 p-2 bg-white rounded-lg border border-gray-100"
+            >
+              <span class="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold text-sm">
+                {{ cita.numero }}
+              </span>
+              <div class="flex-1 min-w-0">
+                <p class="font-medium text-gray-800 truncate">
+                  {{ cita.paciente?.apellido_paterno }} {{ cita.paciente?.apellido_materno }}, {{ cita.paciente?.nombres }}
+                </p>
+                <p class="text-xs text-gray-500">DNI: {{ cita.paciente?.dni }}</p>
+              </div>
+              <span class="text-xs text-gray-400">
+                {{ cita.horario?.hora_inicio?.slice(0, 5) }}
+              </span>
+            </div>
+            <p v-if="citasPreview.total > 5" class="text-center text-sm text-gray-500 pt-2">
+              ... y {{ citasPreview.total - 5 }} más
+            </p>
+          </div>
+        </div>
+
+        <!-- Mensaje de Error -->
+        <div v-if="error" class="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3 text-red-700">
+          <i class="pi pi-exclamation-triangle"></i>
+          <span class="text-sm">{{ error }}</span>
+        </div>
+
+      </div>
+
+      <!-- Footer con Botones -->
+      <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex gap-3">
+        <button 
+          @click="verVistaPrevia"
+          :disabled="!fecha || !areaId || loadingPreview"
+          class="flex-1 px-4 py-3 border-2 border-blue-600 text-blue-600 font-semibold rounded-xl hover:bg-blue-50 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        >
+          <i v-if="loadingPreview" class="pi pi-spin pi-spinner"></i>
+          <i v-else class="pi pi-eye"></i>
+          Vista Previa
+        </button>
+        <button 
+          @click="descargarPDF"
+          :disabled="!fecha || !areaId || loadingPDF"
+          class="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        >
+          <i v-if="loadingPDF" class="pi pi-spin pi-spinner"></i>
+          <i v-else class="pi pi-download"></i>
+          Descargar PDF
+        </button>
+      </div>
+
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, watch, onMounted } from 'vue'
+import citaService, { type CitaConfirmadaResponse } from '@/services/citaService'
+import areaService from '@/services/areaService'
+
+// Props
+const props = defineProps<{
+  visible: boolean
+}>()
+
+// Emits
+const emit = defineEmits<{
+  (e: 'close'): void
+}>()
+
+// Estado
+const fecha = ref('')
+const areaId = ref<number | null>(null)
+const areas = ref<any[]>([])
+const citasPreview = ref<CitaConfirmadaResponse | null>(null)
+const loadingPreview = ref(false)
+const loadingPDF = ref(false)
+const error = ref('')
+
+// Inicializar fecha con hoy
+onMounted(async () => {
+  const hoy = new Date()
+  fecha.value = hoy.toISOString().split('T')[0]
+  
+  // Cargar áreas
+  try {
+    const { data } = await areaService.getAreas()
+    areas.value = data
+  } catch (err) {
+    console.error('Error al cargar áreas:', err)
+  }
+})
+
+// Limpiar preview cuando cambian los filtros
+watch([fecha, areaId], () => {
+  citasPreview.value = null
+  error.value = ''
+})
+
+// Ver vista previa
+const verVistaPrevia = async () => {
+  if (!fecha.value || !areaId.value) return
+  
+  loadingPreview.value = true
+  error.value = ''
+  
+  try {
+    const { data } = await citaService.getCitasConfirmadas({
+      fecha: fecha.value,
+      area_id: areaId.value
+    })
+    citasPreview.value = data
+  } catch (err: any) {
+    error.value = err.response?.data?.error || 'Error al obtener citas'
+    citasPreview.value = null
+  } finally {
+    loadingPreview.value = false
+  }
+}
+
+// Descargar PDF
+const descargarPDF = async () => {
+  if (!fecha.value || !areaId.value) return
+  
+  loadingPDF.value = true
+  error.value = ''
+  
+  try {
+    const response = await citaService.descargarPDFCitasConfirmadas({
+      fecha: fecha.value,
+      area_id: areaId.value
+    })
+    
+    // Crear URL del blob y descargar
+    const blob = new Blob([response.data], { type: 'application/pdf' })
+    const url = window.URL.createObjectURL(blob)
+    
+    // Crear enlace temporal para descarga
+    const link = document.createElement('a')
+    link.href = url
+    
+    // Obtener nombre del área para el archivo
+    const areaNombre = areas.value.find(a => a.id === areaId.value)?.nombre || 'area'
+    const nombreLimpio = areaNombre.toLowerCase().replace(/\s+/g, '_').normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    link.download = `citas_confirmadas_${nombreLimpio}_${fecha.value}.pdf`
+    
+    document.body.appendChild(link)
+    link.click()
+    
+    // Limpiar
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+    
+  } catch (err: any) {
+    error.value = err.response?.data?.error || 'Error al generar PDF'
+  } finally {
+    loadingPDF.value = false
+  }
+}
+
+// Cerrar modal
+const cerrar = () => {
+  emit('close')
+  citasPreview.value = null
+  error.value = ''
+}
+</script>
+```
+
+---
+
+## 4. Integrar en AdminCitas.vue
+
+Agregar botón de imprimir y el modal:
+
+```vue
+<!-- En la sección de acciones del header de AdminCitas.vue -->
+<template>
+  <div class="flex items-center gap-3">
+    <!-- Otros botones... -->
+    
+    <!-- Botón Imprimir Citas -->
+    <button 
+      @click="modalImprimirVisible = true"
+      class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium transition"
+    >
+      <i class="pi pi-print"></i>
+      Imprimir Citas
+    </button>
+  </div>
+  
+  <!-- Al final del template -->
+  <ModalImprimirCitas 
+    :visible="modalImprimirVisible" 
+    @close="modalImprimirVisible = false" 
+  />
+</template>
+
+<script setup lang="ts">
+import { ref } from 'vue'
+import ModalImprimirCitas from '@/components/modals/ModalImprimirCitas.vue'
+
+const modalImprimirVisible = ref(false)
+// ... resto del script
+</script>
+```
+
+---
+
+## 5. Opción Alternativa: Botón Directo (Sin Modal)
+
+Si prefieres una implementación más simple sin modal:
+
+```vue
+<template>
+  <div class="flex items-center gap-4 p-4 bg-white rounded-xl shadow">
+    <div class="flex-1">
+      <label class="text-sm text-gray-600">Fecha:</label>
+      <input type="date" v-model="fechaImprimir" class="ml-2 px-3 py-1 border rounded-lg" />
+    </div>
+    <div class="flex-1">
+      <label class="text-sm text-gray-600">Área:</label>
+      <select v-model="areaImprimir" class="ml-2 px-3 py-1 border rounded-lg">
+        <option :value="null">Seleccione</option>
+        <option v-for="area in areas" :key="area.id" :value="area.id">{{ area.nombre }}</option>
+      </select>
+    </div>
+    <button 
+      @click="descargarPDFRapido"
+      :disabled="!fechaImprimir || !areaImprimir || descargando"
+      class="px-6 py-2 bg-blue-600 text-white rounded-xl disabled:opacity-50 flex items-center gap-2"
+    >
+      <i :class="descargando ? 'pi pi-spin pi-spinner' : 'pi pi-download'"></i>
+      {{ descargando ? 'Generando...' : 'Descargar PDF' }}
+    </button>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref } from 'vue'
+import citaService from '@/services/citaService'
+
+const fechaImprimir = ref('')
+const areaImprimir = ref<number | null>(null)
+const descargando = ref(false)
+const areas = ref<any[]>([]) // Cargar desde areaService
+
+const descargarPDFRapido = async () => {
+  if (!fechaImprimir.value || !areaImprimir.value) return
+  
+  descargando.value = true
+  try {
+    const response = await citaService.descargarPDFCitasConfirmadas({
+      fecha: fechaImprimir.value,
+      area_id: areaImprimir.value
+    })
+    
+    const blob = new Blob([response.data], { type: 'application/pdf' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `citas_${fechaImprimir.value}.pdf`
+    link.click()
+    window.URL.revokeObjectURL(url)
+  } catch (error) {
+    alert('Error al generar PDF')
+  } finally {
+    descargando.value = false
+  }
+}
+</script>
+```
+
+---
+
+## 6. Contenido del PDF Generado
+
+El PDF incluye:
+
+| Elemento | Descripción |
+|----------|-------------|
+| **Encabezado** | "CENTRO DE SALUD" + "Lista de Citas Confirmadas" |
+| **Información** | Área, Fecha (en español), Total de citas |
+| **Tabla** | N°, DNI, Nombre Completo, Horario, Turno |
+| **Estilos** | Colores alternados, encabezado azul, diseño profesional |
+| **Pie de página** | Fecha y hora de generación |
+
+### Orden de las citas:
+Las citas se ordenan por **fecha de registro** (ascendente), lo que significa que el paciente que registró su cita primero aparecerá con el número 1.
+
+---
+
+## 7. Ejemplo de Respuesta JSON
+
+```json
+{
+  "success": true,
+  "fecha": "2025-12-11",
+  "area": {
+    "id": 1,
+    "nombre": "Medicina General"
+  },
+  "total": 3,
+  "citas": [
+    {
+      "numero": 1,
+      "id": 45,
+      "paciente": {
+        "id": 12,
+        "nombres": "Juan Carlos",
+        "apellido_paterno": "García",
+        "apellido_materno": "López",
+        "dni": "12345678",
+        "telefono": "987654321"
+      },
+      "horario": {
+        "id": 5,
+        "hora_inicio": "07:30:00",
+        "hora_fin": "13:30:00",
+        "turno": "M",
+        "turno_nombre": "Mañana"
+      },
+      "fecha_registro": "2025-12-10T14:30:00"
+    }
+  ]
+}
+```
+
+---
+
+## 8. Pruebas Rápidas
+
+### Con cURL:
+```bash
+# Ver JSON
+curl "http://localhost:5000/api/citas/confirmadas?fecha=2025-12-11&area_id=1"
+
+# Descargar PDF
+curl "http://localhost:5000/api/citas/confirmadas/pdf?fecha=2025-12-11&area_id=1" -o citas.pdf
+```
+
+### En el navegador:
+Abrir directamente:
+```
+http://localhost:5000/api/citas/confirmadas/pdf?fecha=2025-12-11&area_id=1
+```
+
+---
+
+## 9. Resumen de Archivos a Modificar
+
+| Archivo | Acción |
+|---------|--------|
+| `src/services/citaService.ts` | Agregar interfaces y métodos |
+| `src/components/modals/ModalImprimirCitas.vue` | Crear nuevo componente |
+| `src/views/admin/AdminCitas.vue` | Agregar botón e importar modal |
+
+---
+
+## 10. Notas Importantes
+
+1. **responseType: 'blob'**: Es crucial para recibir archivos binarios como PDFs.
+
+2. **Nombres de archivo**: Se sanitizan caracteres especiales (tildes, espacios) para compatibilidad.
+
+3. **Manejo de errores**: Si el área no existe o no hay citas, el endpoint retorna JSON con el error (no PDF).
+
+4. **Actualización en tiempo real**: Si se confirman más citas después de generar el PDF, se debe generar uno nuevo.

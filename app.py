@@ -22,6 +22,15 @@ app.config["SECRET_KEY"] = "super_clave_secreta"  # cambia esto
 app.config["SQLALCHEMY_DATABASE_URI"] = SQLALCHEMY_DATABASE_URI
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = SQLALCHEMY_TRACK_MODIFICATIONS
 
+# Configuración optimizada para Supabase (evita errores de conexión perdida y límite de clientes)
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_size': 5,                # Mantener máximo 5 conexiones abiertas
+    'max_overflow': 2,             # Permitir solo 2 conexiones extra temporales
+    'pool_recycle': 300,           # Reciclar conexiones cada 5 minutos
+    'pool_pre_ping': True,         # Verificar conexión antes de usarla
+    'pool_timeout': 30             # Tiempo máximo de espera por una conexión
+}
+
 # CORS CORRECTO para Vue.js + Cookies + JWT
 CORS(app,
      origins=["http://localhost:3000"],
