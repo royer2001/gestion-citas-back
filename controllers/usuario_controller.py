@@ -214,7 +214,7 @@ class UsuarioController:
                 # Mapear roles del frontend a los del backend (enteros)
                 role_mapping = {
                     'admin': 1,
-                    'medico': 2,
+                    'profesional': 2,
                     'asistente': 3
                 }
                 backend_role = role_mapping.get(role_filter)
@@ -238,14 +238,14 @@ class UsuarioController:
             # Mapear roles del backend (enteros) al frontend
             role_mapping_reverse = {
                 1: 'admin',
-                2: 'medico',
+                2: 'profesional',
                 3: 'asistente'
             }
 
             # Nombres legibles de los roles
             role_names = {
                 1: 'Administrador',
-                2: 'Médico',
+                2: 'Profesional',
                 3: 'Asistente Técnico'
             }
 
@@ -282,7 +282,7 @@ class UsuarioController:
             # Mapear rol_id (entero) a string del frontend
             role_mapping_reverse = {
                 1: 'admin',
-                2: 'medico',
+                2: 'profesional',
                 3: 'asistente'
             }
 
@@ -319,7 +319,7 @@ class UsuarioController:
             # Mapear roles del frontend al backend (enteros)
             role_mapping = {
                 'admin': 1,
-                'medico': 2,
+                'profesional': 2,
                 'asistente': 3
             }
 
@@ -352,7 +352,7 @@ class UsuarioController:
 
             role_mapping_reverse = {
                 1: 'admin',
-                2: 'medico',
+                2: 'profesional',
                 3: 'asistente'
             }
 
@@ -423,6 +423,7 @@ class UsuarioController:
             # Mapear roles del frontend al backend (enteros)
             role_mapping = {
                 'admin': 1,
+                'profesional': 2,
                 'medico': 2,
                 'asistente': 3
             }
@@ -452,7 +453,7 @@ class UsuarioController:
 
             role_mapping_reverse = {
                 1: 'admin',
-                2: 'medico',
+                2: 'profesional',
                 3: 'asistente'
             }
 

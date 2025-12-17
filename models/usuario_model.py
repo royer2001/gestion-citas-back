@@ -11,7 +11,7 @@ class Usuario(db.Model):
     nombres_completos = db.Column(db.String(150), nullable=True)
     
     rol_id = db.Column(db.Integer, nullable=False)  
-    # valores: 1 = administrador, 2 = medico, 3 = asistente
+    # valores: 1 = administrador, 2 = profesional, 3 = asistente
 
     activo = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

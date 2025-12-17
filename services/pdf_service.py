@@ -139,7 +139,7 @@ class PDFService:
         info_parts.append(f"<b>Área:</b> {area.get('nombre', 'No especificada')}")
         
         if medico:
-            info_parts.append(f"<b>Médico:</b> {medico.get('nombre', 'No especificado')}")
+            info_parts.append(f"<b>Profesional:</b> {medico.get('nombre', 'No especificado')}")
             
         info_parts.append(f"<b>Fecha:</b> {fecha_formateada}")
         # info_parts.append(f"<b>Total:</b> {len(citas)}")
@@ -179,7 +179,7 @@ class PDFService:
             # Encabezados de la tabla
             headers = ['N°', 'DNI', 'Paciente', 'Hora']
             if mostrar_columna_medico:
-                headers.append('Médico Asignado')
+                headers.append('Profesional Asignado')
                 
             table_data = [headers]
             

@@ -5,6 +5,7 @@ from models.paciente_model import Paciente
 from models.horario_medico_model import HorarioMedico
 from models.area_model import Area
 from models.usuario_model import Usuario
+from models.historial_estado_cita_model import HistorialEstadoCita
 
 from services.pdf_service import PDFService
 from datetime import datetime
@@ -24,7 +25,7 @@ class CitaController:
         - doctor_id: Filtrar por ID del doctor
         - area: Filtrar por nombre de área (búsqueda parcial)
         - area_id: Filtrar por ID de área
-        - estado: Filtrar por estado (pendiente, confirmada, atendida, cancelada, referido)
+        - estado: Filtrar por estado (pendiente, confirmada, atendida, cancelada, referido, no_asistio)
         - paciente_dni: Filtrar por DNI del paciente
         - turno: Filtrar por turno ('M' o 'T')
         """
@@ -281,6 +282,10 @@ class CitaController:
             if not cita:
                 return jsonify({"error": "Cita no encontrada"}), 404
 
+            # Guardar estado anterior para el historial
+            estado_anterior = cita.estado
+            estado_nuevo = data.get("estado")
+
             if "doctor_id" in data:
                 cita.doctor_id = data["doctor_id"]
             if "area" in data:
@@ -296,12 +301,32 @@ class CitaController:
             if "telefono_acompanante" in data:
                 cita.telefono_acompanante = data["telefono_acompanante"]
             if "datos_adicionales" in data:
-                # Merge or replace? Usually replace or merge. Let's assume replace for now or update keys.
-                # If it's a dict, we might want to update.
                 if cita.datos_adicionales and isinstance(data["datos_adicionales"], dict):
                     cita.datos_adicionales.update(data["datos_adicionales"])
                 else:
                     cita.datos_adicionales = data["datos_adicionales"]
+
+            # Registrar cambio de estado en el historial si hubo cambio
+            if estado_nuevo and estado_nuevo != estado_anterior:
+                # Obtener el usuario actual del token (guardado por el middleware)
+                usuario_id = None
+                if hasattr(request, 'user') and request.user:
+                    usuario_id = request.user.get('id')
+                
+                # Obtener IP del cliente
+                ip_address = request.remote_addr
+                
+                # Obtener comentario si se envió
+                comentario = data.get("comentario_cambio")
+                
+                HistorialEstadoCita.registrar_cambio(
+                    cita_id=cita.id,
+                    estado_anterior=estado_anterior,
+                    estado_nuevo=estado_nuevo,
+                    usuario_id=usuario_id,
+                    comentario=comentario,
+                    ip_address=ip_address
+                )
 
             db.session.commit()
             return jsonify(cita.to_dict()), 200
@@ -321,6 +346,31 @@ class CitaController:
             return jsonify({"message": "Cita eliminada correctamente"}), 200
         except Exception as e:
             db.session.rollback()
+            return jsonify({"error": str(e)}), 500
+
+    @staticmethod
+    def obtener_historial(id):
+        """
+        Obtiene el historial de cambios de estado de una cita.
+        
+        Returns:
+            Lista de cambios de estado ordenados por fecha descendente
+        """
+        try:
+            cita = Cita.query.get(id)
+            if not cita:
+                return jsonify({"error": "Cita no encontrada"}), 404
+            
+            historial = HistorialEstadoCita.query.filter_by(cita_id=id)\
+                .order_by(HistorialEstadoCita.fecha_cambio.desc())\
+                .all()
+            
+            return jsonify({
+                "cita_id": id,
+                "total": len(historial),
+                "historial": [h.to_dict() for h in historial]
+            }), 200
+        except Exception as e:
             return jsonify({"error": str(e)}), 500
 
     @staticmethod

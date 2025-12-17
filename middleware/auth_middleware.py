@@ -35,7 +35,7 @@ def roles_required(*roles):
             if not hasattr(request, "user"):
                 return jsonify({"error": "No autenticado"}), 403
 
-            # rol_id: 1=administrador, 2=medico, 3=asistente
+            # rol_id: 1=administrador, 2=profesional, 3=asistente
             user_role = request.user.get("rol_id")
 
             if user_role not in roles:
