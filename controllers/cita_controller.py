@@ -17,6 +17,9 @@ class CitaController:
         """
         Listar citas con filtros y paginación.
         
+        IMPORTANTE: Si el usuario autenticado es un profesional (rol_id = 2),
+        solo verá las citas asignadas a él.
+        
         Query params:
         - page: Página actual (default: 1)
         - per_page: Items por página (default: 10)
@@ -40,6 +43,16 @@ class CitaController:
             estado = request.args.get('estado')
             paciente_dni = request.args.get('paciente_dni')
             turno = request.args.get('turno')
+            
+            # Si el usuario autenticado es un profesional (rol_id = 2),
+            # forzar el filtro de doctor_id para que solo vea sus propias citas
+            if hasattr(request, 'user') and request.user:
+                user_rol_id = request.user.get('rol_id')
+                user_id = request.user.get('id')
+                
+                # Rol 2 = Profesional: solo puede ver sus propias citas
+                if user_rol_id == 2 and user_id:
+                    doctor_id = user_id
 
             query = Cita.query
 
