@@ -2,8 +2,12 @@
 venv/
 env/
 .venv/
-.env/              # Variables de entorno (API keys, credenciales, etc.)
-*.env
+
+# --- Variables de entorno (mantener .env.example) ---
+.env
+.env.local
+.env.*.local
+!.env.example
 
 # --- Archivos de configuración sensibles ---
 config.pyc
