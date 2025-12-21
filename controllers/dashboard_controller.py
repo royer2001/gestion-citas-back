@@ -25,25 +25,29 @@ def get_dashboard_stats():
         "citasPendientesTotal": citas_pendientes_total
     }
 
-def get_upcoming_appointments():
+def get_upcoming_appointments(user_rol_id=None, user_id=None):
     today = date.today()
     
     # Get upcoming appointments (today and future)
-    # Ordenar por fecha y luego por turno/hora si es posible
-    # Asumiremos que el frontend quiere las próximas 10 citas por ejemplo
-    citas = Cita.query.filter(Cita.fecha >= today)\
-        .order_by(Cita.fecha.asc())\
-        .limit(5).all()
+    query = Cita.query.filter(Cita.fecha >= today)
+
+    # Lógica de filtrado por rol:
+    # 2 = Profesional: debe de verse solo las citas confirmadas para el
+    if user_rol_id == 2:
+        query = query.filter(Cita.doctor_id == user_id, Cita.estado == 'confirmada')
+    # 3 = Tecnico/Asistente: debe de verse las citas pendientes por confirmar (todas)
+    elif user_rol_id == 3:
+        query = query.filter(Cita.estado == 'pendiente')
+    
+    # Ordenar por fecha y luego obtener las próximas 10 citas
+    citas = query.order_by(Cita.fecha.asc())\
+        .limit(10).all()
         
     proximas_citas = []
     for cita in citas:
         # Formatear la hora/turno. 
-        # Cita tiene relacion con HorarioMedico (cita.horario)
-        # HorarioMedico tiene hora_inicio
         hora = "Por definir"
         if cita.horario:
-            # Asumiendo que HorarioMedico tiene hora_inicio y hora_fin
-            # Es necesario revisar horario_medico_model para asegurar los campos
              hora = f"{cita.horario.hora_inicio.strftime('%I:%M %p')}" if hasattr(cita.horario, 'hora_inicio') and cita.horario.hora_inicio else "Turno " + str(cita.horario.turno)
 
         proximas_citas.append({
