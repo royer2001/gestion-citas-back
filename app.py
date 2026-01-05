@@ -74,7 +74,7 @@ def health_check():
 def root():
     """Endpoint raíz para verificar que el servidor está corriendo"""
     return jsonify({
-        "message": "API Citas Médicas - DRE Amazonas",
+        "message": "API Citas Médicas - Centro de Salud La Unión",
         "version": "1.0.0",
         "docs": "/api/health"
     }), 200
