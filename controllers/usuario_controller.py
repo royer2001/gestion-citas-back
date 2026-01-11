@@ -164,6 +164,18 @@ class UsuarioController:
                 areas_principales,
                 Usuario.id == areas_principales.c.medico_id
             ).filter(Usuario.rol_id == 2)
+
+            # Filtro por estado activo (por defecto True si no viene parámetro para programación)
+            activo_param = request.args.get('activo')
+            if activo_param is not None:
+                if activo_param.lower() == 'true':
+                    query = query.filter(Usuario.activo == True)
+                elif activo_param.lower() == 'false':
+                    query = query.filter(Usuario.activo == False)
+                # Si es 'all' o cualquier otro valor, no filtramos por activo (devuelve todos)
+            else:
+                # Comportamiento por defecto: solo activos (para programación mensual)
+                query = query.filter(Usuario.activo == True)
             
             if area_id_filter:
                 # Filtrar médicos que tienen horarios en esa área
