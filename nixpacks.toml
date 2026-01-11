@@ -1,14 +1,13 @@
 # Configuración de Nixpacks para Railway
-# https://nixpacks.com/docs/configuration/file
+# Documentación: https://nixpacks.com/docs/configuration/file
 
 [phases.setup]
-nixPkgs = ["python311", "python311Packages.pip", "postgresql"]
+# Usamos '...' para heredar los paquetes por defecto (Python, pip, etc.)
+# y añadimos postgresql para las dependencias de base de datos.
+nixPkgs = ["...", "postgresql"]
 
-[phases.install]
-cmds = ["python3 -m pip install -r requirements.txt"]
-
-[phases.build]
-cmds = ["echo 'Build completado'"]
+# Eliminamos las fases manuales de install y build para que Nixpacks
+# gestione automáticamente el entorno virtual y la instalación de dependencias.
 
 [start]
 cmd = "gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120"
