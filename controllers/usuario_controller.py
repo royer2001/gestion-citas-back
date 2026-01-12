@@ -108,27 +108,28 @@ class UsuarioController:
     @staticmethod
     def get_medicos():
         """
-        Obtiene lista de médicos con su área de servicio.
-        OPTIMIZADO: Una sola consulta para todos los médicos y sus áreas.
+        Obtiene lista de médicos con su área de servicio y disponibilidad futura.
+        OPTIMIZADO: Una sola consulta para todos los médicos, sus áreas y disponibilidad.
         
         Query params:
         - area_id: Filtrar por área específica
         
         Retorna para cada médico:
         - Datos básicos del usuario
-        - area_id: ID del área principal (la más frecuente en sus horarios)
+        - area_id: ID del área principal
         - area_nombre: Nombre del área principal
-        - especialidad: Alias de area_nombre para compatibilidad frontend
+        - especialidad: Alias de area_nombre
+        - disponibilidad: { turnos: int, cupos: int }
         """
         try:
             from models.area_model import Area
+            from models.cita_model import Cita
             from sqlalchemy import func, desc
-            from sqlalchemy.orm import aliased
+            from datetime import date
             
             area_id_filter = request.args.get('area_id')
             
-            # Subconsulta para obtener el área más frecuente por médico
-            # Usando ROW_NUMBER() para obtener solo la primera (más frecuente)
+            # 1. Subconsulta para obtener el área más frecuente por médico
             area_counts = db.session.query(
                 HorarioMedico.medico_id,
                 HorarioMedico.area_id,
@@ -138,13 +139,13 @@ class UsuarioController:
              .group_by(HorarioMedico.medico_id, HorarioMedico.area_id, Area.nombre)\
              .subquery()
             
-            # Subconsulta para obtener el máximo count por médico
+            # 2. Subconsulta para obtener el máximo count por médico
             max_counts = db.session.query(
                 area_counts.c.medico_id,
                 func.max(area_counts.c.horarios_count).label('max_count')
             ).group_by(area_counts.c.medico_id).subquery()
             
-            # Obtener el área principal (la de mayor count) para cada médico
+            # 3. Obtener el área principal
             areas_principales = db.session.query(
                 area_counts.c.medico_id,
                 area_counts.c.area_id,
@@ -154,27 +155,67 @@ class UsuarioController:
                 (area_counts.c.medico_id == max_counts.c.medico_id) & 
                 (area_counts.c.horarios_count == max_counts.c.max_count)
             ).subquery()
+
+            # 4. Subconsultas para DISPONIBILIDAD futura
+            today = date.today()
+
+            # A. Capacidad total (Horarios futuros)
+            capacity_query = db.session.query(
+                HorarioMedico.medico_id,
+                func.count(HorarioMedico.id).label('total_turnos'),
+                func.sum(HorarioMedico.cupos).label('total_cupos')
+            ).filter(
+                HorarioMedico.fecha >= today
+            )
             
-            # Query principal: médicos con su área principal
+            if area_id_filter:
+                capacity_query = capacity_query.filter(HorarioMedico.area_id == area_id_filter)
+            
+            capacity_subquery = capacity_query.group_by(HorarioMedico.medico_id).subquery()
+
+            # B. Citas ocupadas (Citas en horarios futuros activos)
+            occupied_query = db.session.query(
+                HorarioMedico.medico_id,
+                func.count(Cita.id).label('occupied_count')
+            ).join(
+                Cita, Cita.horario_id == HorarioMedico.id
+            ).filter(
+                HorarioMedico.fecha >= today,
+                Cita.estado != 'cancelada'
+            )
+
+            if area_id_filter:
+                occupied_query = occupied_query.filter(HorarioMedico.area_id == area_id_filter)
+
+            occupied_subquery = occupied_query.group_by(HorarioMedico.medico_id).subquery()
+            
+            # 5. Query principal
             query = db.session.query(
                 Usuario,
                 areas_principales.c.area_id,
-                areas_principales.c.area_nombre
+                areas_principales.c.area_nombre,
+                func.coalesce(capacity_subquery.c.total_turnos, 0).label('turnos'),
+                func.coalesce(capacity_subquery.c.total_cupos, 0).label('total_cupos'),
+                func.coalesce(occupied_subquery.c.occupied_count, 0).label('occupied')
             ).outerjoin(
                 areas_principales,
                 Usuario.id == areas_principales.c.medico_id
+            ).outerjoin(
+                capacity_subquery,
+                Usuario.id == capacity_subquery.c.medico_id
+            ).outerjoin(
+                occupied_subquery,
+                Usuario.id == occupied_subquery.c.medico_id
             ).filter(Usuario.rol_id == 2)
 
-            # Filtro por estado activo (por defecto True si no viene parámetro para programación)
+            # Filtros adicionales
             activo_param = request.args.get('activo')
             if activo_param is not None:
                 if activo_param.lower() == 'true':
                     query = query.filter(Usuario.activo == True)
                 elif activo_param.lower() == 'false':
                     query = query.filter(Usuario.activo == False)
-                # Si es 'all' o cualquier otro valor, no filtramos por activo (devuelve todos)
             else:
-                # Comportamiento por defecto: solo activos (para programación mensual)
                 query = query.filter(Usuario.activo == True)
             
             if area_id_filter:
@@ -189,12 +230,20 @@ class UsuarioController:
             
             # Construir respuesta
             lista_medicos = []
-            for usuario, area_id, area_nombre in resultados:
+            for usuario, area_id, area_nombre, turnos, total_cupos, occupied in resultados:
                 medico_dict = usuario.to_dict()
                 medico_dict['name'] = usuario.nombres_completos
                 medico_dict['area_id'] = area_id
                 medico_dict['area_nombre'] = area_nombre
                 medico_dict['especialidad'] = area_nombre
+                
+                # Calcular cupos disponibles reales
+                cupos_disponibles = int(total_cupos) - int(occupied)
+                
+                medico_dict['disponibilidad'] = {
+                    'turnos': int(turnos),
+                    'cupos': max(0, cupos_disponibles) # Evitar negativos por si acaso
+                }
                 lista_medicos.append(medico_dict)
             
             return jsonify(lista_medicos), 200
