@@ -94,8 +94,8 @@ class UsuarioController:
             "refresh_token",
             refresh,
             httponly=True,
-            secure=False,  # Cambiar a True en producción HTTPS
-            samesite="Strict",
+            secure=False,  # Cambiar a True en producción con HTTPS
+            samesite="Lax",
             max_age=60*60*24*7  # 7 días
         )
 

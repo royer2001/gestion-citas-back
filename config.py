@@ -7,7 +7,7 @@ class Config:
     
     # JWT Config
     JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', SECRET_KEY)
-    JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=60) # Increased to 60m for better UX
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=8) # Duración extendida a 8 horas
     JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=7)
     JWT_TOKEN_LOCATION = ['headers', 'cookies'] # Allow both for flexibility
     JWT_COOKIE_SECURE = False # Set to True in production
