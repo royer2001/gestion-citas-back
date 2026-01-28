@@ -335,17 +335,12 @@ class UsuarioController:
 
             lista = []
             for u in usuarios:
-                role_key = role_mapping_reverse.get(u.rol_id, u.rol_id)
-                lista.append({
-                    "id": u.id,
-                    "name": u.nombres_completos or u.dni,
-                    "username": u.dni,
-                    "role": role_key,
-                    "role_nombre": role_names.get(u.rol_id, str(u.rol_id)),
-                    "dni": u.dni,
-                    "activo": u.activo,
-                    "createdAt": str(u.created_at) if u.created_at else None
-                })
+                u_dict = u.to_dict()
+                u_dict["role"] = role_mapping_reverse.get(u.rol_id, u.rol_id)
+                u_dict["role_nombre"] = role_names.get(u.rol_id, str(u.rol_id))
+                u_dict["name"] = u.nombres_completos or u.dni
+                u_dict["createdAt"] = str(u.created_at) if u.created_at else None
+                lista.append(u_dict)
 
             return jsonify(lista), 200
 
@@ -370,15 +365,12 @@ class UsuarioController:
                 3: 'asistente'
             }
 
-            return jsonify({
-                "id": usuario.id,
-                "name": usuario.nombres_completos or usuario.dni,
-                "username": usuario.dni,
-                "role": role_mapping_reverse.get(usuario.rol_id, usuario.rol_id),
-                "dni": usuario.dni,
-                "activo": usuario.activo,
-                "createdAt": None
-            }), 200
+            u_dict = usuario.to_dict()
+            u_dict["role"] = role_mapping_reverse.get(usuario.rol_id, usuario.rol_id)
+            u_dict["name"] = usuario.nombres_completos or usuario.dni
+            u_dict["createdAt"] = None
+
+            return jsonify(u_dict), 200
 
         except Exception as e:
             return jsonify({"error": str(e)}), 500
@@ -598,15 +590,7 @@ class UsuarioController:
 
             return jsonify({
                 "message": "Usuario creado correctamente",
-                "usuario": {
-                    "id": usuario.id,
-                    "name": usuario.nombres_completos,
-                    "username": usuario.dni,
-                    "role": role_mapping_reverse.get(usuario.rol_id, usuario.rol_id),
-                    "dni": usuario.dni,
-                    "activo": usuario.activo,
-                    "createdAt": None
-                }
+                "usuario": usuario.to_dict()
             }), 201
 
         except Exception as e:

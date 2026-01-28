@@ -71,6 +71,7 @@ class Usuario(db.Model):
             "nombres_completos": self.nombres_completos,
             "rol_id": self.rol_id,
             "rol_nombre": self.rol.nombre if self.rol else None,
+            "persona": self.persona.to_dict() if self.persona else None,
             "activo": self.activo,
             "especialidades": [esp.to_dict() for esp in self.especialidades.all()] if self.rol_id == 2 else []
         }
