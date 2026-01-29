@@ -46,7 +46,13 @@ class ProductionConfig(Config):
     DEBUG = False
     SQLALCHEMY_DATABASE_URI = os.getenv('SQLALCHEMY_DATABASE_URI')
     JWT_COOKIE_SECURE = os.getenv('JWT_COOKIE_SECURE', 'True').lower() == 'true'
-    JWT_COOKIE_SAMESITE = os.getenv('JWT_COOKIE_SAMESITE', 'Lax')
+    _samesite = os.getenv('JWT_COOKIE_SAMESITE', 'Lax')
+    # Manejar caso especial "None" que debe ser string, no NoneType, pero si viene null de env
+    if _samesite.lower() == 'none':
+        JWT_COOKIE_SAMESITE = 'None'
+        JWT_COOKIE_SECURE = True # Obligatorio si SameSite=None
+    else:
+        JWT_COOKIE_SAMESITE = _samesite
     
     # Optimizations for Supabase/Railway
     SQLALCHEMY_ENGINE_OPTIONS = {
