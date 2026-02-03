@@ -219,6 +219,7 @@ class PacienteController:
                 return jsonify({"error": "Paciente no encontrado"}), 404
 
             # Actualizar campos proporcionados
+            # Actualizar campos proporcionados
             if "nombres" in data:
                 paciente.nombres = data["nombres"]
             if "apellido_paterno" in data:
@@ -226,29 +227,34 @@ class PacienteController:
             if "apellido_materno" in data:
                 paciente.apellido_materno = data["apellido_materno"]
             if "fecha_nacimiento" in data:
-                paciente.fecha_nacimiento = datetime.strptime(data["fecha_nacimiento"], "%Y-%m-%d")
+                if data["fecha_nacimiento"]:
+                    paciente.fecha_nacimiento = datetime.strptime(data["fecha_nacimiento"], "%Y-%m-%d")
+                else:
+                    paciente.fecha_nacimiento = None
             if "sexo" in data:
-                paciente.sexo = data["sexo"]
+                paciente.sexo = data["sexo"] or None
             if "estado_civil" in data:
-                paciente.estado_civil = data["estado_civil"]
+                # estado_civil es NOT NULL, mantenemos el valor enviado (si es "" podría fallar si hay check constraints, pero es lo que hay)
+                if data["estado_civil"]:
+                    paciente.estado_civil = data["estado_civil"]
             if "grado_instruccion" in data:
-                paciente.grado_instruccion = data["grado_instruccion"]
+                paciente.grado_instruccion = data["grado_instruccion"] or None
             if "religion" in data:
-                paciente.religion = data["religion"]
+                paciente.religion = data["religion"] or None
             if "procedencia" in data:
-                paciente.procedencia = data["procedencia"]
+                paciente.procedencia = data["procedencia"] or None
             if "ocupacion" in data:
-                paciente.ocupacion = data["ocupacion"]
+                paciente.ocupacion = data["ocupacion"] or None
             if "telefono" in data:
-                paciente.telefono = data["telefono"]
+                paciente.telefono = data["telefono"] or None
             if "email" in data:
-                paciente.email = data["email"]
+                paciente.email = data["email"] or None
             if "direccion" in data:
-                paciente.direccion = data["direccion"]
+                paciente.direccion = data["direccion"] or None
             if "seguro" in data:
-                paciente.seguro = data["seguro"]
+                paciente.seguro = data["seguro"] or None
             if "numero_seguro" in data:
-                paciente.numero_seguro = data["numero_seguro"]
+                paciente.numero_seguro = data["numero_seguro"] or None
 
             db.session.commit()
 
